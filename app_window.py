@@ -1,304 +1,215 @@
 # ─────────────────────────────────────────────
-#  song_panel.py  –  Track list sidebar
+#  app_window.py  –  Main application window
 # ─────────────────────────────────────────────
 #
-#  Displays loaded tracks in a scrollable list.
-#  Each row shows: title · artist · BPM · duration
-#  Clicking a row selects it for the DJ engine.
+#  Hosts the OpenCV camera feed on the left and
+#  the song panel on the right inside a single
+#  clean Tkinter window.
+#
+#  Usage (from main.py):
+#      from app_window import AppWindow
+#      win = AppWindow()
+#      win.mainloop()          # blocking – runs the Tk event loop
 # ─────────────────────────────────────────────
 
 import tkinter as tk
 from tkinter import font as tkfont
+import cv2
+from PIL import Image, ImageTk   # pip install Pillow
+
+from song_panel    import SongPanel
+from import_dialog import ImportDialog
+from config        import WINDOW_NAME, CAMERA_WIDTH, CAMERA_HEIGHT
 
 
-# ── Palette (mirrors app_window.py) ──────────
-BG       = "#0E0E0E"
-SURFACE  = "#1A1A1A"
-SURFACE2 = "#222222"   # alternating row shade
-BORDER   = "#2A2A2A"
-ACCENT   = "#E8E8E8"
-MUTED    = "#666666"
-ACTIVE   = "#FFFFFF"
-SELECTED = "#2C2C2C"   # selected row fill
-SEL_BAR  = "#FFFFFF"   # left accent bar on selected row
+# ── Palette ───────────────────────────────────
+BG       = "#0E0E0E"   # near-black canvas
+SURFACE  = "#1A1A1A"   # card / panel surface
+BORDER   = "#2A2A2A"   # subtle rule
+ACCENT   = "#E8E8E8"   # primary text / highlights
+MUTED    = "#666666"   # secondary text
+ACTIVE   = "#FFFFFF"   # active / selected
 
 
-class SongRow(tk.Frame):
-    """Single track row inside the panel."""
-
-    ROW_H = 56
-
-    def __init__(self, parent, track: dict, index: int,
-                 on_select=None, **kwargs):
-        bg = SURFACE2 if index % 2 == 0 else SURFACE
-        super().__init__(parent, bg=bg, height=self.ROW_H, **kwargs)
-        self.pack_propagate(False)
-
-        self._track     = track
-        self._index     = index
-        self._on_select = on_select
-        self._bg        = bg
-        self._selected  = False
-
-        self._build(bg)
-        self.bind("<Button-1>", self._click)
-
-    def _build(self, bg):
-        # ── Left accent bar (hidden until selected) ──
-        self._bar = tk.Frame(self, bg=bg, width=3)
-        self._bar.pack(side="left", fill="y")
-
-        inner = tk.Frame(self, bg=bg, padx=12, pady=0)
-        inner.pack(side="left", fill="both", expand=True)
-        inner.bind("<Button-1>", self._click)
-
-        title_font  = tkfont.Font(family="Helvetica Neue", size=12, weight="bold")
-        detail_font = tkfont.Font(family="Helvetica Neue", size=10)
-
-        # Title
-        self._lbl_title = tk.Label(
-            inner,
-            text=self._track.get("title", "Unknown"),
-            bg=bg, fg=ACCENT,
-            font=title_font,
-            anchor="w",
-        )
-        self._lbl_title.pack(fill="x", pady=(10, 1))
-        self._lbl_title.bind("<Button-1>", self._click)
-
-        # Detail row: artist · BPM · duration
-        detail_frame = tk.Frame(inner, bg=bg)
-        detail_frame.pack(fill="x")
-        detail_frame.bind("<Button-1>", self._click)
-
-        artist   = self._track.get("artist",   "—")
-        bpm      = self._track.get("bpm",      "—")
-        duration = self._track.get("duration", "—")
-        detail   = f"{artist}   ·   {bpm} BPM   ·   {duration}"
-
-        lbl = tk.Label(
-            detail_frame,
-            text=detail,
-            bg=bg, fg=MUTED,
-            font=detail_font,
-            anchor="w",
-        )
-        lbl.pack(fill="x")
-        lbl.bind("<Button-1>", self._click)
-
-        # Bottom rule
-        tk.Frame(self, bg=BORDER, height=1).pack(side="bottom", fill="x")
-
-    def _click(self, _event=None):
-        if self._on_select:
-            self._on_select(self._index, self._track)
-
-    def set_selected(self, selected: bool):
-        self._selected = selected
-        bg = SELECTED if selected else self._bg
-        bar_color = SEL_BAR if selected else bg
-        self._bar.configure(bg=bar_color)
-        for widget in self.winfo_children():
-            try:
-                widget.configure(bg=bg)
-            except tk.TclError:
-                pass
-            for child in widget.winfo_children():
-                try:
-                    child.configure(bg=bg)
-                except tk.TclError:
-                    pass
-        self.configure(bg=bg)
-
-
-class SongPanel(tk.Frame):
+class AppWindow(tk.Tk):
     """
-    Right-hand panel containing a header, scrollable track list,
-    and an empty-state prompt when no songs are loaded.
+    Top-level Tkinter window for the Gesture DJ Controller.
+
+    Layout
+    ──────
+    ┌──────────────────────────────────┬──────────────┐
+    │  Header bar  (title + shortcuts) │              │
+    ├──────────────────────────────────┤  SongPanel   │
+    │  Camera feed (OpenCV frames)     │              │
+    └──────────────────────────────────┴──────────────┘
     """
 
-    def __init__(self, parent, width=340,
-                 on_import=None, dj_engine=None, song_library=None,
-                 **kwargs):
-        super().__init__(parent, bg=BG, width=width, **kwargs)
-        self.pack_propagate(False)
+    FEED_W = 854    # displayed camera width  (16:9 at ~67 % of 1280)
+    FEED_H = 480    # displayed camera height
+    PANEL_W = 340   # right-hand song panel width
 
-        self._width        = width
-        self._on_import    = on_import
-        self._dj           = dj_engine
-        self._library      = song_library
-        self._rows         = []
-        self._selected_idx = -1
+    def __init__(self, camera_manager=None, dj_engine=None, song_library=None):
+        super().__init__()
 
-        self._build_fonts()
+        self._cam     = camera_manager
+        self._dj      = dj_engine
+        self._library = song_library
+
+        self._after_id = None   # holds the scheduled frame-update id
+
+        self._configure_window()
+        self._load_fonts()
+        self._build_ui()
+
+    # ── Window setup ──────────────────────────
+
+    def _configure_window(self):
+        self.title(WINDOW_NAME)
+        self.configure(bg=BG)
+        self.resizable(False, False)
+
+        total_w = self.FEED_W + self.PANEL_W + 3   # 3 px divider
+        total_h = self.FEED_H + 48                  # 48 px header
+        self.geometry(f"{total_w}x{total_h}")
+
+        # Centre on screen
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x  = (sw - total_w) // 2
+        y  = (sh - total_h) // 2
+        self.geometry(f"{total_w}x{total_h}+{x}+{y}")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<KeyPress-q>", lambda _: self._on_close())
+        self.bind("<KeyPress-i>", lambda _: self._open_import())
+
+    def _load_fonts(self):
+        self._font_title  = tkfont.Font(family="Helvetica Neue", size=13, weight="bold")
+        self._font_label  = tkfont.Font(family="Helvetica Neue", size=11)
+        self._font_hint   = tkfont.Font(family="Helvetica Neue", size=10)
+
+    # ── UI construction ───────────────────────
+
+    def _build_ui(self):
         self._build_header()
-        self._build_list()
-        self._build_empty_state()
-
-    # ── Fonts ─────────────────────────────────
-
-    def _build_fonts(self):
-        self._font_header  = tkfont.Font(family="Helvetica Neue", size=11, weight="bold")
-        self._font_label   = tkfont.Font(family="Helvetica Neue", size=11)
-        self._font_hint    = tkfont.Font(family="Helvetica Neue", size=10)
-        self._font_empty   = tkfont.Font(family="Helvetica Neue", size=12)
-        self._font_empty_s = tkfont.Font(family="Helvetica Neue", size=10)
-
-    # ── Header ────────────────────────────────
+        self._build_body()
 
     def _build_header(self):
         hdr = tk.Frame(self, bg=SURFACE, height=48)
-        hdr.pack(fill="x")
+        hdr.pack(fill="x", side="top")
         hdr.pack_propagate(False)
 
+        # Title
         tk.Label(
-            hdr, text="TRACKS",
-            bg=SURFACE, fg=MUTED,
-            font=self._font_header,
-            padx=16,
+            hdr, text=WINDOW_NAME.upper(),
+            bg=SURFACE, fg=ACTIVE,
+            font=self._font_title,
+            padx=20,
         ).pack(side="left", fill="y")
 
-        # Import button
-        btn = tk.Label(
-            hdr, text="+ Import",
-            bg=SURFACE, fg=ACCENT,
-            font=self._font_hint,
-            padx=14, cursor="hand2",
-        )
-        btn.pack(side="right", fill="y")
-        btn.bind("<Button-1>",  lambda _: self._on_import and self._on_import())
-        btn.bind("<Enter>",     lambda _: btn.configure(fg=ACTIVE))
-        btn.bind("<Leave>",     lambda _: btn.configure(fg=ACCENT))
+        # Keyboard hint pills  (Q = quit  |  I = import)
+        hints = [("Q", "quit"), ("I", "import")]
+        for key, label in hints:
+            pill = tk.Frame(hdr, bg=BORDER, padx=8, pady=0)
+            pill.pack(side="right", padx=(0, 8), fill="y", pady=12)
+            tk.Label(pill, text=key,   bg=BORDER, fg=ACTIVE, font=self._font_hint).pack(side="left")
+            tk.Label(pill, text=f" {label}", bg=BORDER, fg=MUTED,  font=self._font_hint).pack(side="left")
 
-        tk.Frame(hdr, bg=BORDER, height=1).place(
-            relx=0, rely=1.0, relwidth=1, anchor="sw"
-        )
+        # Thin bottom rule
+        tk.Frame(hdr, bg=BORDER, height=1).place(relx=0, rely=1.0, relwidth=1, anchor="sw")
 
-    # ── Scrollable list ───────────────────────
+    def _build_body(self):
+        body = tk.Frame(self, bg=BG)
+        body.pack(fill="both", expand=True)
 
-    def _build_list(self):
-        container = tk.Frame(self, bg=BG)
-        container.pack(fill="both", expand=True)
-
-        # Thin custom scrollbar
-        self._scrollbar = tk.Scrollbar(
-            container, orient="vertical",
-            bg=BORDER, troughcolor=BG,
-            activebackground=MUTED,
-            highlightthickness=0, bd=0, width=6,
-        )
-        self._scrollbar.pack(side="right", fill="y")
-
+        # ── Left: camera canvas ───────────────
         self._canvas = tk.Canvas(
-            container,
-            bg=BG, highlightthickness=0,
-            yscrollcommand=self._scrollbar.set,
+            body,
+            width=self.FEED_W, height=self.FEED_H,
+            bg=SURFACE, highlightthickness=0,
         )
-        self._canvas.pack(side="left", fill="both", expand=True)
-        self._scrollbar.configure(command=self._canvas.yview)
+        self._canvas.pack(side="left")
 
-        self._list_frame = tk.Frame(self._canvas, bg=BG)
-        self._canvas_window = self._canvas.create_window(
-            (0, 0), window=self._list_frame, anchor="nw"
+        # Placeholder text until the first frame arrives
+        self._canvas.create_text(
+            self.FEED_W // 2, self.FEED_H // 2,
+            text="Waiting for camera…",
+            fill=MUTED, font=self._font_label,
+            tags="placeholder",
         )
 
-        self._list_frame.bind("<Configure>", self._on_frame_configure)
-        self._canvas.bind("<Configure>",     self._on_canvas_configure)
+        # ── Divider ───────────────────────────
+        tk.Frame(body, bg=BORDER, width=1).pack(side="left", fill="y")
 
-        # Mouse-wheel scrolling
-        self._canvas.bind_all("<MouseWheel>",       self._on_mousewheel)
-        self._canvas.bind_all("<Button-4>",         self._on_mousewheel)
-        self._canvas.bind_all("<Button-5>",         self._on_mousewheel)
+        # ── Right: song panel ─────────────────
+        self._song_panel = SongPanel(
+            body,
+            width=self.PANEL_W,
+            on_import=self._open_import,
+            dj_engine=self._dj,
+            song_library=self._library,
+        )
+        self._song_panel.pack(side="left", fill="both", expand=True)
 
-    def _on_frame_configure(self, _event=None):
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+    # ── Camera feed loop ──────────────────────
 
-    def _on_canvas_configure(self, event):
-        self._canvas.itemconfig(self._canvas_window, width=event.width)
-
-    def _on_mousewheel(self, event):
-        if event.num == 4:
-            self._canvas.yview_scroll(-1, "units")
-        elif event.num == 5:
-            self._canvas.yview_scroll(1, "units")
-        else:
-            self._canvas.yview_scroll(int(-event.delta / 60), "units")
-
-    # ── Empty state ───────────────────────────
-
-    def _build_empty_state(self):
-        self._empty = tk.Frame(self._list_frame, bg=BG, pady=60)
-        self._empty.pack(fill="x")
-
-        tk.Label(
-            self._empty,
-            text="No tracks loaded",
-            bg=BG, fg=MUTED,
-            font=self._font_empty,
-        ).pack()
-
-        tk.Label(
-            self._empty,
-            text="Press  I  or click + Import",
-            bg=BG, fg=BORDER,
-            font=self._font_empty_s,
-        ).pack(pady=(6, 0))
-
-    # ── Public API ────────────────────────────
-
-    def refresh(self, tracks: list = None):
+    def start_feed(self):
         """
-        Re-render the track list.
-        If `tracks` is None and a song_library is attached,
-        it reads tracks from there.
+        Begin polling the camera and drawing frames onto the canvas.
+        Call this after mainloop() would block — typically run in a thread
+        or call before mainloop() and let Tkinter's after() drive it.
         """
-        if tracks is None and self._library is not None:
-            tracks = self._library.all_tracks()
-        tracks = tracks or []
+        self._update_frame()
 
-        # Clear existing rows
-        for row in self._rows:
-            row.destroy()
-        self._rows.clear()
-        self._selected_idx = -1
+    def _update_frame(self):
+        """Scheduled every ~33 ms to pull a frame and refresh the canvas."""
+        if self._cam is not None:
+            frame = self._cam.read()
+            if frame is not None:
+                self._draw_frame(frame)
 
-        # Hide/show empty state
-        if tracks:
-            self._empty.pack_forget()
-        else:
-            self._empty.pack(fill="x")
-            return
+        # Reschedule
+        self._after_id = self.after(33, self._update_frame)
 
-        for i, track in enumerate(tracks):
-            row = SongRow(
-                self._list_frame,
-                track=track,
-                index=i,
-                on_select=self._select_track,
-            )
-            row.pack(fill="x")
-            self._rows.append(row)
+    def _draw_frame(self, bgr_frame):
+        """Convert a BGR OpenCV frame to a Tk PhotoImage and blit it."""
+        # Remove placeholder text on first real frame
+        self._canvas.delete("placeholder")
 
-    def _select_track(self, index: int, track: dict):
-        # Deselect previous
-        if 0 <= self._selected_idx < len(self._rows):
-            self._rows[self._selected_idx].set_selected(False)
+        rgb   = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
+        img   = Image.fromarray(rgb).resize(
+            (self.FEED_W, self.FEED_H), Image.BILINEAR
+        )
+        photo = ImageTk.PhotoImage(img)
 
-        self._selected_idx = index
+        self._canvas.create_image(0, 0, anchor="nw", image=photo)
+        # Keep a reference so Tkinter's GC doesn't discard it
+        self._canvas._photo = photo
 
-        if 0 <= index < len(self._rows):
-            self._rows[index].set_selected(True)
+    # ── Overlay helpers ───────────────────────
 
-        # Pass to DJ engine if available
-        if self._dj is not None:
-            self._dj.load_track(track)
+    def draw_overlay(self, bgr_frame):
+        """
+        External hook — call this from your main gesture loop to push a
+        pre-annotated frame (with landmark overlays) into the canvas.
+        """
+        self._draw_frame(bgr_frame)
 
-    def select_by_index(self, index: int):
-        """External hook — gesture system can call this to select a card."""
-        if 0 <= index < len(self._rows):
-            track = self._rows[index]._track
-            self._select_track(index, track)
+    # ── Import dialog ─────────────────────────
 
-    @property
-    def track_count(self) -> int:
-        return len(self._rows)
+    def _open_import(self):
+        ImportDialog(self, on_confirm=self._on_songs_imported)
+
+    def _on_songs_imported(self, paths):
+        if paths and self._library is not None:
+            for p in paths:
+                self._library.add(p)
+            self._song_panel.refresh()
+
+    # ── Lifecycle ─────────────────────────────
+
+    def _on_close(self):
+        if self._after_id:
+            self.after_cancel(self._after_id)
+        self.destroy()
