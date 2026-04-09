@@ -11,8 +11,6 @@ from config import (
     CAMERA_HEIGHT,
     CAMERA_FPS,
     CAMERA_MIRROR,
-    DISPLAY_WIDTH,
-    DISPLAY_HEIGHT,
 )
 
 
