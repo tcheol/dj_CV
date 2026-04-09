@@ -13,6 +13,7 @@ import sys
 
 from camera      import CameraManager
 from app_window  import AppWindow
+from event_bus import EventBus
 
 # ── Stub imports (uncomment as your team builds each module) ──
 # from hand_tracker       import HandTracker
@@ -32,6 +33,7 @@ def main():
     # dj        = DJEngine()
     # library   = SongLibrary()
     # bus       = EventBus(dj, library)
+    bus = EventBus()
 
     # ── Application window ───────────────────────────────
     win = AppWindow(
