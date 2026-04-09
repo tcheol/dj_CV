@@ -203,9 +203,14 @@ class AppWindow(tk.Tk):
 
     def _on_songs_imported(self, paths):
         if paths and self._library is not None:
-            for p in paths:
-                self._library.add(p)
-            self._song_panel.refresh()
+            added = self._library.add_files(paths)
+            if added:
+                self._song_panel.refresh()
+        elif paths and self._library is None:
+            print('[WARN] No song library attached — songs not saved.')
+            self._song_panel.refresh(
+                [{"title": p, "artist": "—", "duration": "—", "bpm": "—"} for p in paths]
+            )
 
     # ── Lifecycle ─────────────────────────────
 
