@@ -1,10 +1,10 @@
 """
 dj_audio.py
-───────────
+
 Two-deck audio engine for the gesture-controlled DJ controller.
 
 Architecture
-────────────
+
   Deck A  →  pygame.mixer channel 0
   Deck B  →  pygame.mixer channel 1
 
@@ -12,14 +12,14 @@ Architecture
   which is what enables real-time crossfading.
 
 Format support
-──────────────
+
   WAV / OGG   – loaded directly into pygame.mixer.Sound (zero-copy path).
   MP3 / FLAC / AAC / M4A / anything else
               – decoded by pydub → exported to an in-memory WAV BytesIO
                 → passed to pygame.mixer.Sound.  Requires ffmpeg on PATH.
 
 Public API
-──────────
+
   engine = DJEngine()
 
   engine.load(deck, path)         
@@ -56,13 +56,13 @@ except ImportError:
 
 # Constants
 
-SAMPLE_RATE   = 44_100
-CHANNELS      = 2          # stereo
-BUFFER_SIZE   = 2_048      # samples; lower = less latency, higher = more stable
-SAMPLE_BITS   = -16        # signed 16-bit (pygame convention)
+SAMPLE_RATE = 44_100
+CHANNELS = 2          # stereo
+BUFFER_SIZE = 2_048      # samples; lower = less latency, higher = more stable
+SAMPLE_BITS = -16        # signed 16-bit (pygame convention)
 
-DECK_A_CH     = 0
-DECK_B_CH     = 1
+DECK_A_CH = 0
+DECK_B_CH = 1
 
 # Formats handled directly by pygame / SDL_mixer (no pydub needed)
 NATIVE_FORMATS = {'.wav', '.ogg'}
@@ -204,11 +204,11 @@ class DJEngine:
 
     def __init__(self, master_volume: float = 0.9) -> None:
         self._init_mixer()
-        self._lock          = threading.Lock()
+        self._lock = threading.Lock()
         self._crossfade_pos = 0.5          # 0.0 = full A, 1.0 = full B
-        self._master_vol    = master_volume
-        self._deck_a        = _Deck('a', DECK_A_CH)
-        self._deck_b        = _Deck('b', DECK_B_CH)
+        self._master_vol = master_volume
+        self._deck_a = _Deck('a', DECK_A_CH)
+        self._deck_b = _Deck('b', DECK_B_CH)
         self._apply_crossfade()
 
     # Setup / teardown
@@ -361,9 +361,9 @@ class DJEngine:
 
         This gives a smooth, DJ-style crossfade without abrupt cuts.
         """
-        pos   = self._crossfade_pos
+        pos = self._crossfade_pos
         vol_a = (1.0 - pos) * self._master_vol
-        vol_b = pos          * self._master_vol
+        vol_b = pos * self._master_vol
 
         self._deck_a._volume = vol_a
         self._deck_b._volume = vol_b
