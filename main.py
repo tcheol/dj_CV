@@ -13,6 +13,8 @@ import sys
 
 from camera      import CameraManager
 from app_window  import AppWindow
+from song_library import SongLibrary
+library = SongLibrary()
 
 # ── Stub imports (uncomment as your team builds each module) ──
 # from hand_tracker       import HandTracker
