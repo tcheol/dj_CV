@@ -54,6 +54,10 @@ class Song:
             bpm      = d.get("bpm",      "—"),
         )
 
+    def display_title(self) -> str:
+        """Used by dj_engine for status messages."""
+        return self.title if self.title else os.path.basename(self.path)
+
     def as_panel_dict(self) -> dict:
         """Format expected by SongPanel / SongRow."""
         return {
@@ -194,7 +198,9 @@ class SongLibrary:
         Build a Song from a file path.
         Uses Mutagen for metadata; falls back to the filename.
         """
-        title    = os.path.splitext(os.path.basename(path))[0]
+        # Default to filename (without extension) so we never show Unknown
+        filename = os.path.splitext(os.path.basename(path))[0]
+        title    = filename
         artist   = "Unknown"
         duration = "—"
 
@@ -202,13 +208,20 @@ class SongLibrary:
             try:
                 audio = MutagenFile(path, easy=True)
                 if audio is not None:
-                    title    = (audio.get("title",  [title])[0])
-                    artist   = (audio.get("artist", ["Unknown"])[0])
-                    secs     = int(audio.info.length) if hasattr(audio, "info") else 0
-                    duration = f"{secs // 60}:{secs % 60:02d}"
+                    # Only override if the tag actually has a value
+                    raw_title  = audio.get("title",  [None])[0]
+                    raw_artist = audio.get("artist", [None])[0]
+                    if raw_title:
+                        title = str(raw_title).strip()
+                    if raw_artist:
+                        artist = str(raw_artist).strip()
+                    if hasattr(audio, "info") and audio.info:
+                        secs     = int(audio.info.length)
+                        duration = f"{secs // 60}:{secs % 60:02d}"
             except Exception as e:
                 print(f"[WARN] Could not read metadata for {os.path.basename(path)}: {e}")
 
+        print(f"[INFO] Resolved: title="{title}" artist="{artist}" duration={duration}")
         return Song(title=title, artist=artist, duration=duration, path=path)
 
     # ── Visible window ────────────────────────
