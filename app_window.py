@@ -206,11 +206,20 @@ class AppWindow(tk.Tk):
             added = self._library.add_files(paths)
             if added:
                 self._song_panel.refresh()
+                # Auto-play the first newly imported song via DJ engine
+                first_song = self._library.songs[-added]
+                if self._dj is not None:
+                    self._dj.load_and_play(first_song)
+                    print(f'[INFO] Now playing: {first_song.title}')
+                else:
+                    print('[WARN] No DJ engine attached — cannot play audio.')
         elif paths and self._library is None:
             print('[WARN] No song library attached — songs not saved.')
-            self._song_panel.refresh(
-                [{"title": p, "artist": "—", "duration": "—", "bpm": "—"} for p in paths]
-            )
+
+    def stop(self):
+        """Stop playback."""
+        if self._dj is not None:
+            self._dj.stop()
 
     # ── Lifecycle ─────────────────────────────
 
