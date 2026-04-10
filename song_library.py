@@ -221,7 +221,7 @@ class SongLibrary:
             except Exception as e:
                 print(f"[WARN] Could not read metadata for {os.path.basename(path)}: {e}")
 
-        print(f"[INFO] Resolved: title="{title}" artist="{artist}" duration={duration}")
+        print(f"[INFO] Resolved: title=",title," artist=",artist," duration={duration}")
         return Song(title=title, artist=artist, duration=duration, path=path)
 
     # ── Visible window ────────────────────────
