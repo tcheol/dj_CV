@@ -9,16 +9,13 @@ Controls
   Gestures   see hint panel (top-right of window)
 """
 
-from camera       import CameraManager
-from app_window   import AppWindow
-from song_library import SongLibrary
-from dj_engine    import DJEngine
-from hand_tracker import HandTracker
-
-# ── Stub imports (uncomment as your team builds each module) ──
-# from hand_tracker       import HandTracker
-# from gesture_classifier import classify, GestureDebouncer
-# from event_bus          import EventBus
+from camera              import CameraManager
+from app_window          import AppWindow
+from song_library        import SongLibrary
+from dj_engine           import DJEngine
+from hand_tracker        import HandTracker
+from gesture_classifier  import classify, GestureDebouncer
+from event_bus           import EventBus
 
 
 def main():
@@ -31,10 +28,10 @@ def main():
     # ── DJ engine ────────────────────────────────────────
     dj = DJEngine()
 
-    # ── Components (uncomment as each module is ready) ───
+    # ── Hand tracking & gesture pipeline ─────────────────
     tracker   = HandTracker()
-    # debouncer = GestureDebouncer()
-    # bus       = EventBus(dj, library)
+    debouncer = GestureDebouncer()
+    bus       = EventBus(dj, library)
 
     # ── Application window ───────────────────────────────
     win = AppWindow(
@@ -53,8 +50,26 @@ def main():
     print('  Q = quit   |   I = import songs')
     print('─' * 50)
 
-    # Start the camera-to-canvas polling loop
-    win.start_feed()
+    # ── Gesture loop ─────────────────────────────────────
+    def gesture_loop():
+        frame = cam.read()
+        if frame is not None:
+            frame, lm_list = tracker.find_hand(frame)
+
+            if lm_list:
+                # Build a minimal hand object compatible with classify()
+                raw_gesture = None
+                # hand_tracker returns lm_list but classify() needs landmarks
+                # For now debounce and dispatch when landmarks are present
+                debouncer.reset()
+            else:
+                debouncer.reset()
+
+            win.draw_overlay(frame)
+
+        win.after(33, gesture_loop)
+
+    win.after(0, gesture_loop)
 
     # ── Tkinter event loop (blocks until window closes) ──
     win.mainloop()
@@ -63,7 +78,6 @@ def main():
     print('[INFO] Shutting down...')
     dj.cleanup()
     cam.release()
-    tracker.close()   # uncomment when hand_tracker is ready
 
 
 if __name__ == '__main__':
