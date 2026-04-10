@@ -42,12 +42,12 @@ class DJEngine:
         self._sound_a = None
         self._sound_b = None
 
-        self.volume      = config.DEFAULT_VOLUME
-        self.is_playing  = False
-        self.is_looping  = False
-        self.is_loading  = False
+        self.volume       = config.DEFAULT_VOLUME
+        self.is_playing   = False
+        self.is_looping   = False
+        self.is_loading   = False
         self.current_song = None
-        self.status_msg  = ''
+        self.status_msg   = ''
 
         self._lock = threading.Lock()
 
@@ -58,6 +58,24 @@ class DJEngine:
 
     def _inactive_ch(self):
         return self._ch_b if self._active == 'a' else self._ch_a
+
+    def _get_title(self, song) -> str:
+        """Safely get a display title from any song object or dict."""
+        if hasattr(song, 'display_title'):
+            return song.display_title()
+        if hasattr(song, 'title'):
+            return song.title
+        if isinstance(song, dict):
+            return song.get('title', 'Unknown')
+        return str(song)
+
+    def _get_path(self, song) -> str:
+        """Safely get the file path from any song object or dict."""
+        if hasattr(song, 'path'):
+            return song.path
+        if isinstance(song, dict):
+            return song.get('path', '')
+        return str(song)
 
     def _load_sound(self, path):
         """Convert any audio file to a pygame.mixer.Sound object."""
@@ -80,20 +98,31 @@ class DJEngine:
 
     # ── Playback ─────────────────────────────────────────
 
+    def load_track(self, song):
+        """
+        Load a track and start playing it immediately.
+        Accepts a Song object or a plain dict with 'path' and 'title' keys.
+        This is the primary method called by app_window and song_panel.
+        """
+        self.load_and_play(song)
+
     def load_and_play(self, song):
         """Load song in a background thread and start playing."""
-        self.is_loading  = True
+        self.is_loading   = True
         self.current_song = song
-        self.status_msg  = f'Loading: {song.display_title()}'
+        self.status_msg   = f'Loading: {self._get_title(song)}'
+        print(f'[DJ] Loading: {self._get_title(song)}')
         t = threading.Thread(target=self._play_thread, args=(song,), daemon=True)
         t.start()
 
     def _play_thread(self, song):
+        path = self._get_path(song)
         try:
-            sound = self._load_sound(song.path)
+            sound = self._load_sound(path)
         except Exception as e:
             self.status_msg = f'Load error: {e}'
             self.is_loading = False
+            print(f'[DJ] Error loading {path}: {e}')
             return
 
         with self._lock:
@@ -108,18 +137,20 @@ class DJEngine:
             self.is_playing = True
             self.is_loading = False
             self.status_msg = ''
+            print(f'[DJ] Now playing: {self._get_title(song)}')
 
     def crossfade_to(self, song):
         """Fade out current deck and fade in the new song on the other deck."""
         self.is_loading   = True
         self.current_song = song
-        self.status_msg   = f'Crossfading: {song.display_title()}'
+        self.status_msg   = f'Crossfading: {self._get_title(song)}'
         t = threading.Thread(target=self._crossfade_thread, args=(song,), daemon=True)
         t.start()
 
     def _crossfade_thread(self, song):
+        path = self._get_path(song)
         try:
-            sound = self._load_sound(song.path)
+            sound = self._load_sound(path)
         except Exception as e:
             self.status_msg = f'Load error: {e}'
             self.is_loading = False
