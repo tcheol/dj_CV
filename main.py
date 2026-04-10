@@ -35,7 +35,7 @@ def main():
     # dj        = DJEngine()
     # library   = SongLibrary()
     # bus       = EventBus(dj, library)
-    bus = EventBus()
+    #bus = EventBus()
 
     # ── Application window ───────────────────────────────
     win = AppWindow(
