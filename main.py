@@ -9,13 +9,13 @@ Controls
   Gestures   see hint panel (top-right of window)
 """
 
-from camera              import CameraManager
-from app_window          import AppWindow
-from song_library        import SongLibrary
-from dj_engine           import DJEngine
-from hand_tracker        import HandTracker
-from gesture_classifier  import classify, GestureDebouncer
-from event_bus           import EventBus
+from camera             import CameraManager
+from app_window         import AppWindow
+from song_library       import SongLibrary
+from dj_engine          import DJEngine
+from hand_tracker       import HandTracker
+from gesture_classifier import classify, GestureDebouncer
+from event_bus          import EventBus
 
 
 def main():
@@ -54,15 +54,17 @@ def main():
     def gesture_loop():
         frame = cam.read()
         if frame is not None:
-            frame, lm_list = tracker.find_hand(frame)
+            # find_hand returns (img, lm_list, hand_landmarks)
+            frame, lm_list, hand_landmarks = tracker.find_hand(frame)
 
-            if lm_list:
-                # Build a minimal hand object compatible with classify()
-                raw_gesture = None
-                # hand_tracker returns lm_list but classify() needs landmarks
-                # For now debounce and dispatch when landmarks are present
-                debouncer.reset()
+            if hand_landmarks:
+                # Classify the raw MediaPipe landmarks
+                raw_gesture = classify(hand_landmarks)
+                fired = debouncer.update(raw_gesture)
+                if fired:
+                    bus.dispatch(fired)
             else:
+                # No hand visible — reset debouncer
                 debouncer.reset()
 
             win.draw_overlay(frame)
