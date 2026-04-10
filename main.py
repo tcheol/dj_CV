@@ -37,7 +37,7 @@ def main():
 
     # ── Application window ───────────────────────────────
     win = AppWindow(
-        camera_manager = cam,https://github.com/tcheol/dj_CV/blob/main/main.py
+        camera_manager = cam,
         dj_engine      = dj,
         song_library   = library,
     )
