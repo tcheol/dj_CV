@@ -114,7 +114,9 @@ class SongLibrary:
         self.songs = [s for s in loaded if os.path.isfile(s.path)]
         removed = before - len(self.songs)
         if removed:
-            print(f"[INFO] Removed {removed} missing file(s) from library.")
+            for s in loaded:
+                if not os.path.isfile(s.path):
+                    print(f"[WARN] File missing, removed from library: {s.path}")
 
         print(f"[INFO] Loaded {len(self.songs)} song(s) from {LIBRARY_FILE}.")
         self._clamp_scroll()
@@ -221,7 +223,7 @@ class SongLibrary:
             except Exception as e:
                 print(f"[WARN] Could not read metadata for {os.path.basename(path)}: {e}")
 
-        print(f"[INFO] Resolved: title=",title," artist=",artist," duration={duration}")
+        print(f"[INFO] Resolved: title="{title}" artist="{artist}" duration={duration}")
         return Song(title=title, artist=artist, duration=duration, path=path)
 
     # ── Visible window ────────────────────────
