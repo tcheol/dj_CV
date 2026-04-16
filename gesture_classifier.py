@@ -8,7 +8,7 @@
 #     peace         – index + middle up             → Toggle loop
 #     three_fingers – index + middle + ring up      → Next track
 #     pinky         – only pinky up                 → Previous track
-#     pinch         – thumb tip close to index tip  → Crossfade
+#     rock_on       – index + pinky up (horns)      → Crossfade
 
 from __future__ import annotations
 from collections import deque
@@ -33,8 +33,8 @@ EXTENSION_RATIO: float = 0.10
 # Thumb: tip must be this much *above* wrist.y (normalised) to count as up.
 THUMB_UP_RATIO: float = 0.05
 
-# Pinch: thumb tip ↔ index tip distance (normalised) below this = pinch.
-PINCH_RATIO: float = 0.12
+# Thumb is considered active only when it is clearly extended away from the palm.
+THUMB_EXTENDED_RATIO: float = 0.08
 
 # Internal helpers
 
@@ -66,23 +66,24 @@ def _finger_extended(hand, tip_idx: int, pip_idx: int, scale: float) -> bool:
     return (pip_y - tip_y) > EXTENSION_RATIO * scale
 
 
+def _thumb_extended(hand, scale: float) -> bool:
+    """True when the thumb is clearly extended away from the palm."""
+    tx, ty = _lm(hand, THUMB_TIP)
+    ipx, ipy = _lm(hand, THUMB_IP)
+    cmx, cmy = _lm(hand, THUMB_CMC)
+
+    vertical = (ipy - ty) > (THUMB_UP_RATIO * scale / 2)
+    horizontal = abs(tx - cmx) > THUMB_EXTENDED_RATIO * scale
+    return vertical and horizontal
+
+
 def _thumb_up(hand, scale: float) -> bool:
     """
-    Thumb extended = tip is above the wrist AND significantly above the IP joint.
-    We use the x-axis too: tip further from palm centre counts as extended.
-    Using the IP→TIP vector magnitude vs THUMB_UP_RATIO keeps it hand-agnostic.
+    Thumb is pointing upward when its tip is above the wrist.
     """
     _, tip_y  = _lm(hand, THUMB_TIP)
-    _, ip_y   = _lm(hand, THUMB_IP)
-    return (ip_y - tip_y) > THUMB_UP_RATIO * scale
-
-
-def _pinch_active(hand, scale: float) -> bool:
-    """True when thumb tip and index tip are within PINCH_RATIO * scale."""
-    tx, ty = _lm(hand, THUMB_TIP)
-    ix, iy = _lm(hand, INDEX_TIP)
-    dist = ((tx - ix) ** 2 + (ty - iy) ** 2) ** 0.5
-    return dist < PINCH_RATIO * scale
+    _, wrist_y = _lm(hand, WRIST)
+    return tip_y < wrist_y
 
 
 # Public classifier
@@ -104,15 +105,16 @@ def classify(hand) -> Optional[str]:
     scale = _hand_scale(hand)
 
     # Finger states
-    thumb  = _thumb_up(hand, scale)
+    thumb  = _thumb_extended(hand, scale)
+    thumb_up = _thumb_up(hand, scale)
     index  = _finger_extended(hand, INDEX_TIP,  INDEX_PIP,  scale)
     middle = _finger_extended(hand, MIDDLE_TIP, MIDDLE_PIP, scale)
     ring   = _finger_extended(hand, RING_TIP,   RING_PIP,   scale)
     pinky  = _finger_extended(hand, PINKY_TIP,  PINKY_PIP,  scale)
 
-    # Pinch (checked first – overrides other states)
-    if _pinch_active(hand, scale):
-        return 'pinch'
+    # Rock on (index + pinky) -> horns gesture
+    if index and pinky and not middle and not ring:
+        return 'rock_on'
 
     # All fingers down → fist
     if not any([thumb, index, middle, ring, pinky]):
@@ -237,14 +239,14 @@ class GestureDebouncer:
 
 # Quick sanity-check (run directly: python gesture_classifier.py)
 
-# if __name__ == '__main__':
-#     print('gesture_classifier.py loaded OK')
-#     print('Gestures recognised:', [
-#         'open_palm', 'fist', 'thumb_up', 'thumb_down',
-#         'point', 'peace', 'three_fingers', 'pinky', 'pinch',
-#     ])
-#     d = GestureDebouncer(confirm_frames=4, cooldown_frames=10)
-#     # Simulate 5 frames of "fist"
-#     for i in range(5):
-#         result = d.update('fist')
-#         print(f'  frame {i+1}: update("fist") → {result}')
+if __name__ == '__main__':
+    print('gesture_classifier.py loaded OK')
+    print('Gestures recognised:', [
+        'open_palm', 'fist', 'thumb_up', 'thumb_down',
+        'point', 'peace', 'three_fingers', 'pinky', 'rock_on',
+    ])
+    d = GestureDebouncer(confirm_frames=4, cooldown_frames=10)
+    # Simulate 5 frames of "fist"
+    for i in range(5):
+        result = d.update('fist')
+        print(f'  frame {i+1}: update("fist") → {result}')
