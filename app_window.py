@@ -66,8 +66,6 @@ class AppWindow(tk.Tk):
     def _configure_window(self):
         self.title(WINDOW_NAME)
         self.configure(bg=BG)
-        self.resizable(False, False)
-
         total_w = self.FEED_W + self.PANEL_W + 3   # 3 px divider
         total_h = self.FEED_H + 48                  # 48 px header
         self.geometry(f"{total_w}x{total_h}")
@@ -80,9 +78,16 @@ class AppWindow(tk.Tk):
         y  = (sh - total_h) // 2
         self.geometry(f"{total_w}x{total_h}+{x}+{y}")
 
+        self._fullscreen = False
+        self.resizable(True, True)
+
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.bind("<KeyPress-q>", lambda _: self._on_close())
-        self.bind("<KeyPress-i>", lambda _: self._open_import())
+        self.bind("<KeyPress-q>",  lambda _: self._on_close())
+        self.bind("<KeyPress-i>",  lambda _: self._open_import())
+        self.bind("<KeyPress-f>",  lambda _: self._toggle_fullscreen())
+        self.bind("<F11>",         lambda _: self._toggle_fullscreen())
+        self.bind("<Escape>",      lambda _: self._exit_fullscreen())
+        self.bind("<Configure>",   self._on_resize)
 
     def _load_fonts(self):
         self._font_title  = tkfont.Font(family="Helvetica Neue", size=13, weight="bold")
@@ -109,7 +114,7 @@ class AppWindow(tk.Tk):
         ).pack(side="left", fill="y")
 
         # Keyboard hint pills  (Q = quit  |  I = import)
-        hints = [("Q", "quit"), ("I", "import")]
+        hints = [("Q", "quit"), ("I", "import"), ("F", "fullscreen")]
         for key, label in hints:
             pill = tk.Frame(hdr, bg=BORDER, padx=8, pady=0)
             pill.pack(side="right", padx=(0, 8), fill="y", pady=12)
@@ -152,6 +157,36 @@ class AppWindow(tk.Tk):
         )
         self._song_panel.pack(side="left", fill="both", expand=True)
 
+    # ── Fullscreen ───────────────────────────
+
+    def _toggle_fullscreen(self):
+        self._fullscreen = not self._fullscreen
+        self.attributes("-fullscreen", self._fullscreen)
+
+    def _exit_fullscreen(self):
+        if self._fullscreen:
+            self._fullscreen = False
+            self.attributes("-fullscreen", False)
+
+    def _on_resize(self, event=None):
+        """Resize the camera canvas whenever the window size changes."""
+        if event and event.widget is not self:
+            return
+        win_w = self.winfo_width()
+        win_h = self.winfo_height()
+        hdr_h = 48
+
+        if self._fullscreen:
+            # Camera fills the whole screen, panel slides off
+            feed_w = win_w
+            feed_h = win_h
+        else:
+            # Normal layout: camera takes window minus panel
+            feed_w = max(100, win_w - self.PANEL_W - 3)
+            feed_h = max(100, win_h - hdr_h)
+
+        self._canvas.config(width=feed_w, height=feed_h)
+
     # ── Camera feed loop ──────────────────────
 
     def start_feed(self):
@@ -174,17 +209,17 @@ class AppWindow(tk.Tk):
 
     def _draw_frame(self, bgr_frame):
         """Convert a BGR OpenCV frame to a Tk PhotoImage and blit it."""
-        # Remove placeholder text on first real frame
         self._canvas.delete("placeholder")
 
+        # Use actual canvas size so it fills correctly in fullscreen
+        cw = self._canvas.winfo_width()  or self.FEED_W
+        ch = self._canvas.winfo_height() or self.FEED_H
+
         rgb   = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        img   = Image.fromarray(rgb).resize(
-            (self.FEED_W, self.FEED_H), Image.BILINEAR
-        )
+        img   = Image.fromarray(rgb).resize((cw, ch), Image.BILINEAR)
         photo = ImageTk.PhotoImage(img)
 
         self._canvas.create_image(0, 0, anchor="nw", image=photo)
-        # Keep a reference so Tkinter's GC doesn't discard it
         self._canvas._photo = photo
 
     # ── Overlay helpers ───────────────────────
