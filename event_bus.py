@@ -23,7 +23,7 @@ class EventBus:
             "pinch":         lambda: dj.crossfade_to(
                                 lib.songs[lib.queued_idx]
                              ) if dj and lib and lib.queued_idx >= 0 else None,
-            "point":         self._delete_current_song,
+            "point":         self._skip_to_next,
         }
 
     # ── Volume helpers (update bar UI after change) ───────
@@ -67,29 +67,24 @@ class EventBus:
         else:
             print(f"[EventBus] Unrecognised gesture: '{gesture}'")
 
-    # ── Delete current song ───────────────────────────────
 
-    def _delete_current_song(self):
+    def _skip_to_next(self):
         lib = self._library
         dj  = self._dj
 
-        if not lib or lib.queued_idx < 0 or lib.queued_idx >= len(lib.songs):
+        if not lib or not lib.songs:
             return
 
-        old_idx      = lib.queued_idx
-        removed_song = lib.songs.pop(old_idx)
-        print(f"[EventBus] Deleted → {removed_song.title}")
-
-        if len(lib.songs) == 0:
-            lib.queued_idx = -1
-            if dj:
-                dj.stop()
-            return
-
-        lib.queued_idx = old_idx if old_idx < len(lib.songs) else len(lib.songs) - 1
+        # Advance index, wrapping around to the start
+        lib.queued_idx = (lib.queued_idx + 1) % len(lib.songs)
         next_song = lib.songs[lib.queued_idx]
 
         if dj:
             dj.load_track(next_song)
+            if hasattr(dj, "play"):
+                dj.play()
+            else:
+                dj.toggle_play_pause()
 
-        print(f"[EventBus] Now playing → {next_song.title}")
+        print(f"[EventBus] point → skipped to {next_song.title}")
+
