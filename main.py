@@ -7,7 +7,7 @@ Controls
   Q          quit
   I          open import dialog
   F / F11    toggle fullscreen
-  Gestures   see gesture_classifier.py
+  Escape     exit fullscreen
 """
 
 from camera             import CameraManager
@@ -44,29 +44,47 @@ def main():
     print('  Q = quit   |   I = import   |   F = fullscreen')
     print('─' * 50)
 
-    # ── Single unified loop — reads camera, runs hand tracking,
-    #    draws landmarks, then pushes the annotated frame to the canvas.
-    #    Do NOT call win.start_feed() — this loop replaces it.
+    # Track hovered row for point gesture
+    hovered_row   = -1
+
     def gesture_loop():
+        nonlocal hovered_row
+
         frame = cam.read()
         if frame is not None:
-            # Run hand tracking and draw landmarks onto the frame
             frame, lm_list, hand_landmarks = tracker.find_hand(frame)
 
             if hand_landmarks:
                 raw_gesture = classify(hand_landmarks)
+
+                # ── Point: live hover (no debounce) ──────────────────
+                if raw_gesture == 'point':
+                    hovered_row = win.get_pointed_row(lm_list)
+                    # Draw a highlight ring on the fingertip
+                    tip = next((lm for lm in lm_list if lm[0] == 8), None)
+                    if tip:
+                        import cv2
+                        cv2.circle(frame, (tip[1], tip[2]), 14,
+                                   (255, 255, 255), 2)
+                else:
+                    hovered_row = -1
+
+                # ── Debounce all other gestures ───────────────────────
                 fired = debouncer.update(raw_gesture)
                 if fired:
-                    bus.dispatch(fired)
+                    if fired == 'point' and hovered_row >= 0:
+                        bus.dispatch('point_select', hovered_row)
+                    elif fired != 'point':
+                        bus.dispatch(fired)
             else:
+                hovered_row = -1
                 debouncer.reset()
 
-            # Push the annotated frame to the window canvas
             win.draw_overlay(frame)
 
         win.after(33, gesture_loop)
 
-    win.after(0, gesture_loop)   # start on first Tk tick
+    win.after(0, gesture_loop)
     win.mainloop()
 
     print('[INFO] Shutting down...')
