@@ -55,19 +55,37 @@ class EventBus:
 
     def _delete_current_song(self):
         lib = self._library
+        dj = self._dj
 
-        if not lib or lib.queued_idx < 0:
+        if not lib or lib.queued_idx < 0 or lib.queued_idx >= len(lib.songs):
             return
 
-        removed_song = lib.songs.pop(lib.queued_idx)
+        old_idx = lib.queued_idx
+        removed_song = lib.songs.pop(old_idx)
         print(f"[EventBus] Deleted → {removed_song.title}")
 
-        # Fix index after deletion
-        if lib.queued_idx >= len(lib.songs):
-            lib.queued_idx = len(lib.songs) - 1
-
-        # Optional: stop DJ if queue is empty
+        # If queue is now empty, stop everything
         if len(lib.songs) == 0:
             lib.queued_idx = -1
-            if self._dj:
-                self._dj.stop()
+            if dj:
+                dj.stop()
+            return
+
+        # Stay at the same index if possible:
+        # after pop(), that index now points to the next song
+        if old_idx < len(lib.songs):
+            lib.queued_idx = old_idx
+        else:
+            # deleted the last song, so move to new last song
+            lib.queued_idx = len(lib.songs) - 1
+
+        next_song = lib.songs[lib.queued_idx]
+
+        if dj:
+            dj.load_track(next_song)
+            if hasattr(dj, "play"):
+                dj.play()
+            else:
+                dj.toggle_play_pause()
+
+        print(f"[EventBus] Now playing → {next_song.title}")
