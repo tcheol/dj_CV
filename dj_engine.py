@@ -28,7 +28,7 @@ class DJEngine:
 
     def __init__(self):
         pygame.mixer.init(
-            frequency=config.SAMPLE_RATE,
+            frequency=config.SAMPLE_RATE,   
             size=-16,
             channels=2,
             buffer=2048,
