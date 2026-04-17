@@ -7,7 +7,7 @@ Controls
   Q          quit
   I          open import dialog
   F / F11    toggle fullscreen
-  Gestures   see hint panel
+  Gestures   see gesture_classifier.py
 """
 
 from camera             import CameraManager
@@ -35,8 +35,6 @@ def main():
     )
 
     win._song_panel.refresh()
-
-    # Wire the song panel into the event bus so volume bar stays in sync
     bus.set_song_panel(win._song_panel)
 
     print('─' * 50)
@@ -46,9 +44,13 @@ def main():
     print('  Q = quit   |   I = import   |   F = fullscreen')
     print('─' * 50)
 
+    # ── Single unified loop — reads camera, runs hand tracking,
+    #    draws landmarks, then pushes the annotated frame to the canvas.
+    #    Do NOT call win.start_feed() — this loop replaces it.
     def gesture_loop():
         frame = cam.read()
         if frame is not None:
+            # Run hand tracking and draw landmarks onto the frame
             frame, lm_list, hand_landmarks = tracker.find_hand(frame)
 
             if hand_landmarks:
@@ -59,12 +61,12 @@ def main():
             else:
                 debouncer.reset()
 
+            # Push the annotated frame to the window canvas
             win.draw_overlay(frame)
 
         win.after(33, gesture_loop)
 
-    win.after(0, gesture_loop)
-    win.start_feed()
+    win.after(0, gesture_loop)   # start on first Tk tick
     win.mainloop()
 
     print('[INFO] Shutting down...')
