@@ -6,7 +6,8 @@ Run:  python main.py
 Controls
   Q          quit
   I          open import dialog
-  Gestures   see hint panel (top-right of window)
+  F / F11    toggle fullscreen
+  Gestures   see hint panel
 """
 
 from camera             import CameraManager
@@ -19,58 +20,43 @@ from event_bus          import EventBus
 
 
 def main():
-    # ── Camera ───────────────────────────────────────────
-    cam = CameraManager()
-
-    # ── Song library (loads songs.json automatically) ────
+    cam     = CameraManager()
     library = SongLibrary()
+    dj      = DJEngine()
 
-    # ── DJ engine ────────────────────────────────────────
-    dj = DJEngine()
-
-    # ── Hand tracking & gesture pipeline ─────────────────
     tracker   = HandTracker()
     debouncer = GestureDebouncer()
     bus       = EventBus(dj, library)
 
-    # ── Application window ───────────────────────────────
     win = AppWindow(
         camera_manager = cam,
         dj_engine      = dj,
         song_library   = library,
     )
 
-    # Populate the song panel with any previously saved tracks
     win._song_panel.refresh()
+
+    # Wire the song panel into the event bus so volume bar stays in sync
+    bus.set_song_panel(win._song_panel)
 
     print('─' * 50)
     print('  DJ Controller started')
     print(f'  Camera  : {cam.width}×{cam.height} @ {cam.fps:.0f} fps')
     print(f'  Library : {len(library)} song(s) loaded')
-    print('  Q = quit   |   I = import songs')
+    print('  Q = quit   |   I = import   |   F = fullscreen')
     print('─' * 50)
 
-    # ── Gesture loop ─────────────────────────────────────
     def gesture_loop():
         frame = cam.read()
         if frame is not None:
-            # find_hand returns (img, lm_list, hand_landmarks)
             frame, lm_list, hand_landmarks = tracker.find_hand(frame)
 
             if hand_landmarks:
-                # Classify the raw MediaPipe landmarks
                 raw_gesture = classify(hand_landmarks)
                 fired = debouncer.update(raw_gesture)
                 if fired:
                     bus.dispatch(fired)
-
-                    # Handle volume gestures directly
-                    if fired == 'thumb_up':
-                        win.handle_volume_up()
-                    elif fired == 'thumb_down':
-                        win.handle_volume_down()
             else:
-                # No hand visible — reset debouncer
                 debouncer.reset()
 
             win.draw_overlay(frame)
@@ -78,11 +64,9 @@ def main():
         win.after(33, gesture_loop)
 
     win.after(0, gesture_loop)
-
-    # ── Tkinter event loop (blocks until window closes) ──
+    win.start_feed()
     win.mainloop()
 
-    # ── Cleanup ──────────────────────────────────────────
     print('[INFO] Shutting down...')
     dj.cleanup()
     cam.release()
