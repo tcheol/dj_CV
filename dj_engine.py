@@ -224,6 +224,86 @@ class DJEngine:
         if self.current_song and self.is_playing:
             self.load_and_play(self.current_song)
 
+    # ── Seeking ──────────────────────────────────────────
+
+    def seek(self, ratio: float):
+        """
+        Seek to a position in the current song.
+        ratio: 0.0 = start, 1.0 = end
+        Reloads and plays the song from the new offset using pydub.
+        """
+        if not self.current_song:
+            return
+        ratio = max(0.0, min(1.0, ratio))
+        path  = self._get_path(self.current_song)
+
+        import threading
+        t = threading.Thread(
+            target=self._seek_thread, args=(path, ratio), daemon=True)
+        t.start()
+
+    def _seek_thread(self, path: str, ratio: float):
+        try:
+            import io, os
+            ext = os.path.splitext(path)[1].lower()
+
+            if HAS_PYDUB:
+                from pydub import AudioSegment
+                audio    = AudioSegment.from_file(path)
+                duration = len(audio)          # milliseconds
+                start_ms = int(ratio * duration)
+                sliced   = audio[start_ms:]
+                sliced   = (sliced
+                            .set_frame_rate(config.SAMPLE_RATE)
+                            .set_channels(2)
+                            .set_sample_width(2))
+                buf = io.BytesIO()
+                sliced.export(buf, format='wav')
+                buf.seek(0)
+                import pygame
+                sound = pygame.mixer.Sound(buf)
+            elif ext in ('.wav', '.ogg'):
+                import pygame
+                sound = pygame.mixer.Sound(path)
+            else:
+                print('[DJ] Seek needs pydub for MP3/FLAC. Install: pip install pydub')
+                return
+
+            with self._lock:
+                self._active_ch().stop()
+                loops = -1 if self.is_looping else 0
+                self._active_ch().play(sound, loops=loops)
+                self._active_ch().set_volume(self.volume)
+                if self._active == 'a':
+                    self._sound_a = sound
+                else:
+                    self._sound_b = sound
+                self.is_playing   = True
+                self.is_loading   = False
+                self._seek_offset = ratio   # remember where we seeked to
+                print(f'[DJ] Seeked to {int(ratio*100)}%')
+        except Exception as e:
+            print(f'[DJ] Seek error: {e}')
+
+    def get_progress(self) -> float:
+        """
+        Return playback progress as 0.0–1.0.
+        Accounts for any seek offset.
+        """
+        try:
+            ch    = self._active_ch()
+            sound = (self._sound_a if self._active == 'a' else self._sound_b)
+            if sound and self.is_playing:
+                total_ms = sound.get_length() * 1000
+                pos_ms   = ch.get_pos()
+                if total_ms > 0 and pos_ms >= 0:
+                    offset   = getattr(self, '_seek_offset', 0.0)
+                    progress = offset + (1.0 - offset) * (pos_ms / total_ms)
+                    return min(1.0, progress)
+        except Exception:
+            pass
+        return 0.0
+
     # ── Cleanup ──────────────────────────────────────────
 
     def cleanup(self):
