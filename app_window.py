@@ -256,6 +256,75 @@ class AppWindow(tk.Tk):
         if self._dj is not None:
             self._dj.stop()
 
+    # ── Volume control ────────────────────────
+
+    def _redraw_volume_bar(self):
+        """Redraw the volume bar based on current volume level."""
+        self._volume_canvas.delete("all")
+        
+        canvas_width = self._volume_canvas.winfo_width()
+        canvas_height = self._volume_canvas.winfo_height()
+        
+        # Handle case where canvas hasn't been rendered yet
+        if canvas_width <= 1:
+            canvas_width = self.FEED_W
+        if canvas_height <= 1:
+            canvas_height = 40
+
+        # Padding and dimensions
+        padding = 12
+        bar_height = 8
+        bar_y = (canvas_height - bar_height) // 2
+
+        # Background bar (unfilled)
+        bar_width = canvas_width - 2 * padding
+        self._volume_canvas.create_rectangle(
+            padding, bar_y,
+            padding + bar_width, bar_y + bar_height,
+            fill=BORDER, outline=MUTED, width=1,
+            tags="bg_bar"
+        )
+
+        # Filled bar (shows current volume)
+        fill_width = (self._volume * bar_width) // 100
+        if fill_width > 0:
+            self._volume_canvas.create_rectangle(
+                padding, bar_y,
+                padding + fill_width, bar_y + bar_height,
+                fill=ACCENT, outline=ACCENT, width=0,
+                tags="fill_bar"
+            )
+
+        # Volume text label
+        volume_text = f"Volume: {self._volume}%"
+        self._volume_canvas.create_text(
+            canvas_width // 2, canvas_height // 2,
+            text=volume_text,
+            fill=ACTIVE, font=self._font_label,
+            tags="volume_text"
+        )
+
+    def handle_volume_up(self):
+        """Increase volume by 5%."""
+        self._volume = min(100, self._volume + 5)
+        self._redraw_volume_bar()
+        print(f'[INFO] Volume: {self._volume}%')
+
+    def handle_volume_down(self):
+        """Decrease volume by 5%."""
+        self._volume = max(0, self._volume - 5)
+        self._redraw_volume_bar()
+        print(f'[INFO] Volume: {self._volume}%')
+
+    def get_volume(self):
+        """Get current volume level (0-100)."""
+        return self._volume
+
+    def set_volume(self, level):
+        """Set volume level (0-100)."""
+        self._volume = max(0, min(100, level))
+        self._redraw_volume_bar()
+
     # ── Lifecycle ─────────────────────────────
 
     def _on_close(self):
