@@ -63,6 +63,12 @@ def main():
                 fired = debouncer.update(raw_gesture)
                 if fired:
                     bus.dispatch(fired)
+
+                    # Handle volume gestures directly
+                    if fired == 'thumb_up':
+                        win.handle_volume_up()
+                    elif fired == 'thumb_down':
+                        win.handle_volume_down()
             else:
                 # No hand visible — reset debouncer
                 debouncer.reset()
