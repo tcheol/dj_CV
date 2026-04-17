@@ -49,21 +49,21 @@ class SongRow(tk.Frame):
         self._bar = tk.Frame(self, bg=bg, width=3)
         self._bar.pack(side="left", fill="y")
 
+        # Drag handle — sits first so it is leftmost and always visible
+        handle_font = tkfont.Font(family="TkDefaultFont", size=11)
+        self._handle = tk.Label(
+            self, text="  ≡  ", bg=bg, fg=MUTED,
+            font=handle_font, cursor="fleur",
+        )
+        self._handle.pack(side="left", fill="y")
+
         # Track number
         num_font = tkfont.Font(family="TkDefaultFont", size=10)
         self._num_lbl = tk.Label(
             self, text=str(self._index + 1),
-            bg=bg, fg=MUTED, font=num_font, width=3, anchor="e",
+            bg=bg, fg=MUTED, font=num_font, width=2, anchor="e",
         )
-        self._num_lbl.pack(side="left", fill="y", padx=(4, 0))
-
-        # Drag handle
-        handle_font = tkfont.Font(family="TkDefaultFont", size=13)
-        self._handle = tk.Label(
-            self, text="⠿", bg=bg, fg=BORDER,
-            font=handle_font, cursor="fleur", padx=6,
-        )
-        self._handle.pack(side="left", fill="y")
+        self._num_lbl.pack(side="left", fill="y", padx=(0, 4))
 
         # Text content
         inner = tk.Frame(self, bg=bg, padx=8, pady=0)
