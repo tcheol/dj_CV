@@ -52,8 +52,8 @@ class SongRow(tk.Frame):
         inner.pack(side="left", fill="both", expand=True)
         inner.bind("<Button-1>", self._click)
 
-        title_font  = tkfont.Font(family="Helvetica Neue", size=12, weight="bold")
-        detail_font = tkfont.Font(family="Helvetica Neue", size=10)
+        title_font  = tkfont.Font(family="TkDefaultFont", size=12, weight="bold")
+        detail_font = tkfont.Font(family="TkDefaultFont", size=10)
 
         # Title
         self._lbl_title = tk.Label(
@@ -138,11 +138,11 @@ class SongPanel(tk.Frame):
     # ── Fonts ─────────────────────────────────
 
     def _build_fonts(self):
-        self._font_header  = tkfont.Font(family="Helvetica Neue", size=11, weight="bold")
-        self._font_label   = tkfont.Font(family="Helvetica Neue", size=11)
-        self._font_hint    = tkfont.Font(family="Helvetica Neue", size=10)
-        self._font_empty   = tkfont.Font(family="Helvetica Neue", size=12)
-        self._font_empty_s = tkfont.Font(family="Helvetica Neue", size=10)
+        self._font_header  = tkfont.Font(family="TkDefaultFont", size=11, weight="bold")
+        self._font_label   = tkfont.Font(family="TkDefaultFont", size=11)
+        self._font_hint    = tkfont.Font(family="TkDefaultFont", size=10)
+        self._font_empty   = tkfont.Font(family="TkDefaultFont", size=12)
+        self._font_empty_s = tkfont.Font(family="TkDefaultFont", size=10)
 
     # ── Header ────────────────────────────────
 
@@ -302,3 +302,4 @@ class SongPanel(tk.Frame):
     @property
     def track_count(self) -> int:
         return len(self._rows)
+    
