@@ -67,14 +67,15 @@ def _finger_extended(hand, tip_idx: int, pip_idx: int, scale: float) -> bool:
 
 
 def _thumb_extended(hand, scale: float) -> bool:
-    """True when the thumb is clearly extended away from the palm."""
+    """True when the thumb is clearly extended away from the palm (up OR down)."""
     tx, ty = _lm(hand, THUMB_TIP)
     ipx, ipy = _lm(hand, THUMB_IP)
     cmx, cmy = _lm(hand, THUMB_CMC)
 
-    vertical = (ipy - ty) > (THUMB_UP_RATIO * scale / 2)
+    # Vertical extension: tip above IP (up) OR tip below IP (down)
+    vertical = abs(ipy - ty) > (THUMB_UP_RATIO * scale / 2)
     horizontal = abs(tx - cmx) > THUMB_EXTENDED_RATIO * scale
-    return vertical and horizontal
+    return vertical or horizontal
 
 
 def _thumb_up(hand, scale: float) -> bool:
