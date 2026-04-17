@@ -19,6 +19,7 @@ class EventBus:
             "pinch":         lambda: dj.crossfade_to(
                                 lib.songs[lib.queued_idx]
                              ) if dj and lib and lib.queued_idx >= 0 else None,
+            "point":         self._delete_current_song,
         }
 
     def dispatch(self, gesture: str, extra=None) -> None:
@@ -50,3 +51,23 @@ class EventBus:
             action()
         else:
             print(f"[EventBus] Unrecognised gesture: '{gesture}'")
+
+
+    def _delete_current_song(self):
+        lib = self._library
+
+        if not lib or lib.queued_idx < 0:
+            return
+
+        removed_song = lib.songs.pop(lib.queued_idx)
+        print(f"[EventBus] Deleted → {removed_song.title}")
+
+        # Fix index after deletion
+        if lib.queued_idx >= len(lib.songs):
+            lib.queued_idx = len(lib.songs) - 1
+
+        # Optional: stop DJ if queue is empty
+        if len(lib.songs) == 0:
+            lib.queued_idx = -1
+            if self._dj:
+                self._dj.stop()
