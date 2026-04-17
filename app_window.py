@@ -56,7 +56,6 @@ class AppWindow(tk.Tk):
         self._library = song_library
 
         self._after_id = None   # holds the scheduled frame-update id
-        self._volume   = 50     # volume level (0-100)
 
         self._configure_window()
         self._load_fonts()
@@ -67,10 +66,8 @@ class AppWindow(tk.Tk):
     def _configure_window(self):
         self.title(WINDOW_NAME)
         self.configure(bg=BG)
-        self.resizable(False, False)
-
         total_w = self.FEED_W + self.PANEL_W + 3   # 3 px divider
-        total_h = self.FEED_H + 48 + 40             # 48 px header + 40 px volume bar
+        total_h = self.FEED_H + 48                  # 48 px header
         self.geometry(f"{total_w}x{total_h}")
 
         # Centre on screen
@@ -81,9 +78,16 @@ class AppWindow(tk.Tk):
         y  = (sh - total_h) // 2
         self.geometry(f"{total_w}x{total_h}+{x}+{y}")
 
+        self._fullscreen = False
+        self.resizable(True, True)
+
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.bind("<KeyPress-q>", lambda _: self._on_close())
-        self.bind("<KeyPress-i>", lambda _: self._open_import())
+        self.bind("<KeyPress-q>",  lambda _: self._on_close())
+        self.bind("<KeyPress-i>",  lambda _: self._open_import())
+        self.bind("<KeyPress-f>",  lambda _: self._toggle_fullscreen())
+        self.bind("<F11>",         lambda _: self._toggle_fullscreen())
+        self.bind("<Escape>",      lambda _: self._exit_fullscreen())
+        self.bind("<Configure>",   self._on_resize)
 
     def _load_fonts(self):
         self._font_title  = tkfont.Font(family="Helvetica Neue", size=13, weight="bold")
@@ -110,7 +114,7 @@ class AppWindow(tk.Tk):
         ).pack(side="left", fill="y")
 
         # Keyboard hint pills  (Q = quit  |  I = import)
-        hints = [("Q", "quit"), ("I", "import")]
+        hints = [("Q", "quit"), ("I", "import"), ("F", "fullscreen")]
         for key, label in hints:
             pill = tk.Frame(hdr, bg=BORDER, padx=8, pady=0)
             pill.pack(side="right", padx=(0, 8), fill="y", pady=12)
@@ -124,17 +128,13 @@ class AppWindow(tk.Tk):
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True)
 
-        # ── Left: camera + volume bar ─────────
-        left_panel = tk.Frame(body, bg=BG)
-        left_panel.pack(side="left")
-
-        # Camera canvas
+        # ── Left: camera canvas ───────────────
         self._canvas = tk.Canvas(
-            left_panel,
+            body,
             width=self.FEED_W, height=self.FEED_H,
             bg=SURFACE, highlightthickness=0,
         )
-        self._canvas.pack()
+        self._canvas.pack(side="left")
 
         # Placeholder text until the first frame arrives
         self._canvas.create_text(
@@ -143,15 +143,6 @@ class AppWindow(tk.Tk):
             fill=MUTED, font=self._font_label,
             tags="placeholder",
         )
-
-        # Volume bar
-        self._volume_canvas = tk.Canvas(
-            left_panel,
-            width=self.FEED_W, height=40,
-            bg=SURFACE, highlightthickness=0,
-        )
-        self._volume_canvas.pack(fill="x")
-        self._volume_canvas.bind("<Configure>", lambda _: self._redraw_volume_bar())
 
         # ── Divider ───────────────────────────
         tk.Frame(body, bg=BORDER, width=1).pack(side="left", fill="y")
@@ -165,6 +156,36 @@ class AppWindow(tk.Tk):
             song_library=self._library,
         )
         self._song_panel.pack(side="left", fill="both", expand=True)
+
+    # ── Fullscreen ───────────────────────────
+
+    def _toggle_fullscreen(self):
+        self._fullscreen = not self._fullscreen
+        self.attributes("-fullscreen", self._fullscreen)
+
+    def _exit_fullscreen(self):
+        if self._fullscreen:
+            self._fullscreen = False
+            self.attributes("-fullscreen", False)
+
+    def _on_resize(self, event=None):
+        """Resize the camera canvas whenever the window size changes."""
+        if event and event.widget is not self:
+            return
+        win_w = self.winfo_width()
+        win_h = self.winfo_height()
+        hdr_h = 48
+
+        if self._fullscreen:
+            # Camera fills the whole screen, panel slides off
+            feed_w = win_w
+            feed_h = win_h
+        else:
+            # Normal layout: camera takes window minus panel
+            feed_w = max(100, win_w - self.PANEL_W - 3)
+            feed_h = max(100, win_h - hdr_h)
+
+        self._canvas.config(width=feed_w, height=feed_h)
 
     # ── Camera feed loop ──────────────────────
 
@@ -188,17 +209,17 @@ class AppWindow(tk.Tk):
 
     def _draw_frame(self, bgr_frame):
         """Convert a BGR OpenCV frame to a Tk PhotoImage and blit it."""
-        # Remove placeholder text on first real frame
         self._canvas.delete("placeholder")
 
+        # Use actual canvas size so it fills correctly in fullscreen
+        cw = self._canvas.winfo_width()  or self.FEED_W
+        ch = self._canvas.winfo_height() or self.FEED_H
+
         rgb   = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        img   = Image.fromarray(rgb).resize(
-            (self.FEED_W, self.FEED_H), Image.BILINEAR
-        )
+        img   = Image.fromarray(rgb).resize((cw, ch), Image.BILINEAR)
         photo = ImageTk.PhotoImage(img)
 
         self._canvas.create_image(0, 0, anchor="nw", image=photo)
-        # Keep a reference so Tkinter's GC doesn't discard it
         self._canvas._photo = photo
 
     # ── Overlay helpers ───────────────────────
@@ -234,75 +255,6 @@ class AppWindow(tk.Tk):
         """Stop playback."""
         if self._dj is not None:
             self._dj.stop()
-
-    # ── Volume control ────────────────────────
-
-    def _redraw_volume_bar(self):
-        """Redraw the volume bar based on current volume level."""
-        self._volume_canvas.delete("all")
-        
-        canvas_width = self._volume_canvas.winfo_width()
-        canvas_height = self._volume_canvas.winfo_height()
-        
-        # Handle case where canvas hasn't been rendered yet
-        if canvas_width <= 1:
-            canvas_width = self.FEED_W
-        if canvas_height <= 1:
-            canvas_height = 40
-
-        # Padding and dimensions
-        padding = 12
-        bar_height = 8
-        bar_y = (canvas_height - bar_height) // 2
-
-        # Background bar (unfilled)
-        bar_width = canvas_width - 2 * padding
-        self._volume_canvas.create_rectangle(
-            padding, bar_y,
-            padding + bar_width, bar_y + bar_height,
-            fill=BORDER, outline=MUTED, width=1,
-            tags="bg_bar"
-        )
-
-        # Filled bar (shows current volume)
-        fill_width = (self._volume * bar_width) // 100
-        if fill_width > 0:
-            self._volume_canvas.create_rectangle(
-                padding, bar_y,
-                padding + fill_width, bar_y + bar_height,
-                fill=ACCENT, outline=ACCENT, width=0,
-                tags="fill_bar"
-            )
-
-        # Volume text label
-        volume_text = f"Volume: {self._volume}%"
-        self._volume_canvas.create_text(
-            canvas_width // 2, canvas_height // 2,
-            text=volume_text,
-            fill=ACTIVE, font=self._font_label,
-            tags="volume_text"
-        )
-
-    def handle_volume_up(self):
-        """Increase volume by 5%."""
-        self._volume = min(100, self._volume + 5)
-        self._redraw_volume_bar()
-        print(f'[INFO] Volume: {self._volume}%')
-
-    def handle_volume_down(self):
-        """Decrease volume by 5%."""
-        self._volume = max(0, self._volume - 5)
-        self._redraw_volume_bar()
-        print(f'[INFO] Volume: {self._volume}%')
-
-    def get_volume(self):
-        """Get current volume level (0-100)."""
-        return self._volume
-
-    def set_volume(self, level):
-        """Set volume level (0-100)."""
-        self._volume = max(0, min(100, level))
-        self._redraw_volume_bar()
 
     # ── Lifecycle ─────────────────────────────
 
