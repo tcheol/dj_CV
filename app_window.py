@@ -111,6 +111,15 @@ class AppWindow(tk.Tk):
             font=self._font_title, padx=20,
         ).pack(side="left", fill="y")
 
+        # Shortcut pills — Q quit, F fullscreen
+        for key, label in [("F", "fullscreen"), ("Q", "quit")]:
+            pill = tk.Frame(hdr, bg=BORDER, padx=8)
+            pill.pack(side="right", padx=(0, 8), fill="y", pady=8)
+            tk.Label(pill, text=key, bg=BORDER, fg=ACTIVE,
+                     font=self._font_hint).pack(side="left")
+            tk.Label(pill, text=f" {label}", bg=BORDER, fg=MUTED,
+                     font=self._font_hint).pack(side="left")
+
         tk.Frame(hdr, bg=BORDER, height=1).place(
             relx=0, rely=1.0, relwidth=1, anchor="sw"
         )
@@ -131,6 +140,14 @@ class AppWindow(tk.Tk):
             fill=MUTED, font=self._font_label,
             tags="placeholder",
         )
+
+        # Click/drag waveform strip to seek
+        self._canvas.bind("<ButtonPress-1>", self._on_canvas_click)
+        self._canvas.bind("<B1-Motion>",     self._on_canvas_click)
+
+        # Click/drag on canvas to seek in the waveform
+        self._canvas.bind("<ButtonPress-1>",   self._on_canvas_click)
+        self._canvas.bind("<B1-Motion>",       self._on_canvas_click)
 
         self._divider = tk.Frame(body, bg=BORDER, width=1)
         self._divider.pack(side="left", fill="y")
@@ -178,6 +195,58 @@ class AppWindow(tk.Tk):
 
     def draw_overlay(self, bgr_frame):
         self._draw_frame(bgr_frame)
+
+    # ── Canvas click → waveform seek ─────────
+
+    def _on_canvas_click(self, event):
+        ch = self._canvas.winfo_height() or self.FEED_H
+        cw = self._canvas.winfo_width()  or self.FEED_W
+        wave_y0 = ch - 56
+        if event.y >= wave_y0 and cw > 0:
+            ratio = max(0.0, min(1.0, event.x / cw))
+            if self._dj and hasattr(self._dj, 'seek'):
+                self._dj.seek(ratio)
+
+    # ── Point gesture: fingertip → song row ───
+
+    def get_pointed_row(self, lm_list: list) -> int:
+        """Map index fingertip position to a song row index, or -1."""
+        if not lm_list:
+            return -1
+        tip = next((lm for lm in lm_list if lm[0] == 8), None)
+        if tip is None:
+            return -1
+        _, cx, cy = tip
+
+        cw     = self._canvas.winfo_width()  or self.FEED_W
+        ch     = self._canvas.winfo_height() or self.FEED_H
+        row_h  = 56
+        hdr_h  = 36
+
+        if self._fullscreen:
+            pw     = self.PANEL_W + 40
+            px     = cw - pw
+            if cx < px:
+                return -1
+            row_y = cy - hdr_h
+        else:
+            # Convert canvas x to window x to check if inside panel
+            try:
+                canvas_off = self._canvas.winfo_rootx() - self.winfo_rootx()
+            except Exception:
+                canvas_off = 0
+            win_x = cx + canvas_off
+            win_w = self.winfo_width()
+            if win_x < (win_w - self.PANEL_W):
+                return -1
+            row_y = cy - hdr_h
+
+        if row_y < 0:
+            return -1
+        row_idx = int(row_y // row_h)
+        if self._song_panel and 0 <= row_idx < self._song_panel.track_count:
+            return row_idx
+        return -1
 
     def _draw_frame(self, bgr_frame):
         self._canvas.delete("placeholder")
@@ -244,16 +313,18 @@ class AppWindow(tk.Tk):
 
             # Try to get progress from pygame mixer
             try:
-                import pygame
-                ch = self._dj._active_ch()
-                sound = (self._dj._sound_a
-                         if self._dj._active == 'a'
-                         else self._dj._sound_b)
-                if sound and self._dj.is_playing:
-                    total_ms = sound.get_length() * 1000
-                    pos_ms   = ch.get_pos()       # ms since play() was called
-                    if total_ms > 0 and pos_ms >= 0:
-                        progress = min(1.0, pos_ms / total_ms)
+                if hasattr(self._dj, 'get_progress'):
+                    progress = self._dj.get_progress()
+                else:
+                    import pygame
+                    ch    = self._dj._active_ch()
+                    sound = (self._dj._sound_a if self._dj._active == 'a'
+                             else self._dj._sound_b)
+                    if sound and self._dj.is_playing:
+                        total_ms = sound.get_length() * 1000
+                        pos_ms   = ch.get_pos()
+                        if total_ms > 0 and pos_ms >= 0:
+                            progress = min(1.0, pos_ms / total_ms)
             except Exception:
                 pass
 
