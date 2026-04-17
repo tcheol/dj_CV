@@ -6,7 +6,9 @@ import tkinter as tk
 from tkinter import font as tkfont
 import cv2
 import numpy as np
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
+import os
+import sys
 
 from song_panel    import SongPanel
 from import_dialog import ImportDialog
@@ -194,38 +196,85 @@ class AppWindow(tk.Tk):
         self._canvas.create_image(0, 0, anchor="nw", image=photo)
         self._canvas._photo = photo
 
+    # ── Unicode font loader ───────────────────
+
+    @staticmethod
+    def _load_font(size: int) -> ImageFont.FreeTypeFont:
+        """
+        Load the best available font that supports Unicode / CJK characters.
+        Falls back gracefully if no TrueType font is found.
+        """
+        candidates = [
+            # Windows
+            "C:/Windows/Fonts/arialuni.ttf",
+            "C:/Windows/Fonts/Arial.ttf",
+            "C:/Windows/Fonts/msgothic.ttc",
+            # macOS
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/Library/Fonts/Arial Unicode.ttf",
+            # Linux — Noto covers Korean, Japanese, Chinese, Arabic, etc.
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    continue
+        return ImageFont.load_default()
+
+    # ── PIL text helper ───────────────────────
+
+    def _put_text(self, img_pil: Image.Image, text: str, xy: tuple,
+                  color: tuple, font: ImageFont.FreeTypeFont):
+        """Draw Unicode text onto a PIL image in-place."""
+        draw = ImageDraw.Draw(img_pil)
+        # color is BGR tuple — convert to RGB for PIL
+        rgb = (color[2], color[1], color[0])
+        draw.text(xy, text, font=font, fill=rgb)
+
     # ── Transparent overlay panel ─────────────
 
     def _draw_panel_overlay(self, frame, fw, fh):
         """Draw a semi-transparent song panel on the right of the frame."""
-        pw = self.PANEL_W + 40   # panel width with padding
-        px = fw - pw             # panel starts here (right side)
+        pw = self.PANEL_W + 40
+        px = fw - pw
 
+        # ── Background blend ──────────────────
         overlay = frame.copy()
-
-        # Panel background
         cv2.rectangle(overlay, (px, 0), (fw, fh), OVERLAY_BG, -1)
-
-        # Left border line
         cv2.line(overlay, (px, 0), (px, fh), OVERLAY_BORDER, 1)
-
-        # Blend overlay onto frame
         frame = cv2.addWeighted(overlay, OVERLAY_ALPHA, frame, 1 - OVERLAY_ALPHA, 0)
 
-        # ── Header ────────────────────────────
+        # ── Header background ─────────────────
         header_h = 48
         cv2.rectangle(frame, (px, 0), (fw, header_h), (26, 26, 26), -1)
         cv2.line(frame, (px, header_h), (fw, header_h), OVERLAY_BORDER, 1)
-        cv2.putText(frame, "TRACKS", (px + 16, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, TEXT_MUTED, 1, cv2.LINE_AA)
+
+        # Convert frame to PIL for Unicode text rendering
+        img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+        font_title  = self._load_font(13)
+        font_detail = self._load_font(11)
+        font_small  = self._load_font(10)
+
+        # Header label
+        self._put_text(img_pil, "TRACKS", (px + 16, 16), TEXT_MUTED, font_small)
 
         # ── Track rows ────────────────────────
         tracks = self._library.all_tracks()
         row_h  = 56
-        y      = header_h
 
-        for i, track in enumerate(tracks[:8]):   # max 8 rows visible
-            row_y = y + i * row_h
+        # Convert back to BGR to draw rectangles, then back to PIL for text
+        frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+
+        for i, track in enumerate(tracks[:8]):
+            row_y = header_h + i * row_h
             if row_y + row_h > fh:
                 break
 
@@ -234,48 +283,44 @@ class AppWindow(tk.Tk):
                 self._song_panel._selected_idx == i
             )
 
-            # Row background
             row_bg = SEL_BG if is_selected else (
                 (28, 28, 28) if i % 2 == 0 else (22, 22, 22)
             )
             cv2.rectangle(frame, (px, row_y), (fw, row_y + row_h), row_bg, -1)
 
-            # Selected accent bar
             if is_selected:
                 cv2.rectangle(frame, (px, row_y), (px + 3, row_y + row_h), ACCENT_BAR, -1)
 
-            # Title
-            title  = track.get("title",  "Unknown")[:28]
+            cv2.line(frame, (px, row_y + row_h), (fw, row_y + row_h), OVERLAY_BORDER, 1)
+
+            # Convert to PIL to draw Unicode text
+            img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+            title  = track.get("title",  "Unknown")
             artist = track.get("artist", "—")
             dur    = track.get("duration", "—")
             bpm    = track.get("bpm", "—")
 
-            cv2.putText(frame, title,
-                        (px + 14, row_y + 22),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.42,
-                        TEXT_ACTIVE if is_selected else TEXT_PRIMARY,
-                        1, cv2.LINE_AA)
+            title_color  = TEXT_ACTIVE if is_selected else TEXT_PRIMARY
+            self._put_text(img_pil, title,  (px + 14, row_y + 8),  title_color,  font_title)
 
-            detail = f"{artist}  ·  {bpm} BPM  ·  {dur}"[:38]
-            cv2.putText(frame, detail,
-                        (px + 14, row_y + 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.35,
-                        TEXT_MUTED, 1, cv2.LINE_AA)
+            detail = f"{artist}  ·  {bpm} BPM  ·  {dur}"
+            self._put_text(img_pil, detail, (px + 14, row_y + 28), TEXT_MUTED, font_detail)
 
-            # Bottom divider
-            cv2.line(frame, (px, row_y + row_h), (fw, row_y + row_h), OVERLAY_BORDER, 1)
+            frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
         # ── Now playing footer ─────────────────
         if self._dj and hasattr(self._dj, 'current_song') and self._dj.current_song:
-            song  = self._dj.current_song
-            title = song.title if hasattr(song, 'title') else song.get('title', '')
-            footer_y = fh - 40
+            song     = self._dj.current_song
+            title    = song.title if hasattr(song, 'title') else song.get('title', '')
+            footer_y = fh - 48
             cv2.rectangle(frame, (px, footer_y), (fw, fh), (15, 15, 15), -1)
             cv2.line(frame, (px, footer_y), (fw, footer_y), OVERLAY_BORDER, 1)
-            cv2.putText(frame, "NOW PLAYING", (px + 14, footer_y + 14),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, TEXT_MUTED, 1, cv2.LINE_AA)
-            cv2.putText(frame, title[:30], (px + 14, footer_y + 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, TEXT_ACTIVE, 1, cv2.LINE_AA)
+
+            img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            self._put_text(img_pil, "NOW PLAYING", (px + 14, footer_y + 6),  TEXT_MUTED,  font_small)
+            self._put_text(img_pil, title,          (px + 14, footer_y + 22), TEXT_ACTIVE, font_title)
+            frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
         return frame
 
