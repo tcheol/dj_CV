@@ -207,59 +207,45 @@ class SongPanel(tk.Frame):
             relx=0, rely=1.0, relwidth=1, anchor="sw"
         )
 
-    # ── Volume bar (bottom) ───────────────────
+    # ── Volume bar (vertical, right side) ────
 
     def _build_volume_bar(self):
-        vol_frame = tk.Frame(self, bg=SURFACE, height=52)
-        vol_frame.pack(fill="x", side="bottom")
+        vol_frame = tk.Frame(self, bg=SURFACE, width=36)
+        vol_frame.pack(side="right", fill="y")
         vol_frame.pack_propagate(False)
 
-        tk.Frame(vol_frame, bg=BORDER, height=1).pack(fill="x")
+        tk.Frame(vol_frame, bg=BORDER, width=1).pack(side="left", fill="y")
 
-        inner = tk.Frame(vol_frame, bg=SURFACE, padx=14, pady=6)
+        inner = tk.Frame(vol_frame, bg=SURFACE, pady=10, padx=4)
         inner.pack(fill="both", expand=True)
 
-        # Label row
-        label_row = tk.Frame(inner, bg=SURFACE)
-        label_row.pack(fill="x")
-
-        tk.Label(
-            label_row, text="VOLUME",
-            bg=SURFACE, fg=MUTED, font=self._font_vol,
-        ).pack(side="left")
+        tk.Label(inner, text="VOL", bg=SURFACE, fg=MUTED,
+                 font=self._font_vol).pack()
 
         self._vol_pct_lbl = tk.Label(
-            label_row, text="80%",
-            bg=SURFACE, fg=ACCENT, font=self._font_vol,
-        )
-        self._vol_pct_lbl.pack(side="right")
+            inner, text="80%", bg=SURFACE, fg=ACCENT, font=self._font_vol)
+        self._vol_pct_lbl.pack(pady=(2, 6))
 
-        # Bar track
-        bar_track = tk.Frame(inner, bg=VOL_BG, height=6, cursor="hand2")
-        bar_track.pack(fill="x", pady=(5, 0))
-        bar_track.pack_propagate(False)
-
-        self._vol_fill = tk.Frame(bar_track, bg=VOL_FILL, height=6)
-        self._vol_fill.place(relx=0, rely=0, relheight=1, relwidth=0.8)
-
-        bar_track.bind("<ButtonPress-1>", lambda e: self._vol_seek(e, bar_track))
-        bar_track.bind("<B1-Motion>",     lambda e: self._vol_seek(e, bar_track))
-        self._vol_fill.bind("<ButtonPress-1>", lambda e: self._vol_seek(e, bar_track))
-        self._vol_fill.bind("<B1-Motion>",     lambda e: self._vol_seek(e, bar_track))
+        bar_track = tk.Canvas(
+            inner, bg=VOL_BG, width=12,
+            highlightthickness=0, cursor="hand2")
+        bar_track.pack(fill="both", expand=True, pady=2)
 
         self._vol_bar_track = bar_track
         self._vol_level     = 0.8
 
-        if self._dj and hasattr(self._dj, 'volume'):
+        if self._dj and hasattr(self._dj, "volume"):
             self._vol_level = self._dj.volume
-            self._refresh_vol_ui()
 
-    def _vol_seek(self, event, bar_track):
-        bar_track.update_idletasks()
-        w = bar_track.winfo_width()
-        if w <= 0:
+        bar_track.bind("<ButtonPress-1>", self._vol_seek)
+        bar_track.bind("<B1-Motion>",     self._vol_seek)
+        bar_track.bind("<Configure>",     lambda _: self._refresh_vol_ui())
+
+    def _vol_seek(self, event):
+        h = self._vol_bar_track.winfo_height()
+        if h <= 0:
             return
-        ratio = max(0.0, min(1.0, event.x / w))
+        ratio = max(0.0, min(1.0, 1.0 - event.y / h))
         self._vol_level = ratio
         self._refresh_vol_ui()
         if self._dj is not None:
@@ -267,8 +253,17 @@ class SongPanel(tk.Frame):
             self._dj._apply_volume()
 
     def _refresh_vol_ui(self):
-        self._vol_fill.place(relwidth=self._vol_level)
-        self._vol_pct_lbl.configure(text=f"{int(self._vol_level * 100)}%")
+        c = self._vol_bar_track
+        w = c.winfo_width()
+        h = c.winfo_height()
+        if w <= 0 or h <= 0:
+            return
+        c.delete("all")
+        fill_h = int(self._vol_level * h)
+        c.create_rectangle(0, h - fill_h, w, h,
+                            fill=VOL_FILL, outline="")
+        self._vol_pct_lbl.configure(
+            text=f"{int(self._vol_level * 100)}%")
 
     def update_volume(self, level: float):
         """External hook — call to sync bar when volume changes via gesture."""
