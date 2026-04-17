@@ -56,6 +56,7 @@ class AppWindow(tk.Tk):
         self._library = song_library
 
         self._after_id = None   # holds the scheduled frame-update id
+        self._volume   = 50     # volume level (0-100)
 
         self._configure_window()
         self._load_fonts()
@@ -67,7 +68,7 @@ class AppWindow(tk.Tk):
         self.title(WINDOW_NAME)
         self.configure(bg=BG)
         total_w = self.FEED_W + self.PANEL_W + 3   # 3 px divider
-        total_h = self.FEED_H + 48                  # 48 px header
+        total_h = self.FEED_H + 48 + 40             # 48 px header + 40 px volume bar
         self.geometry(f"{total_w}x{total_h}")
 
         # Centre on screen
@@ -128,13 +129,17 @@ class AppWindow(tk.Tk):
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True)
 
-        # ── Left: camera canvas ───────────────
+        # ── Left: camera + volume bar ─────────
+        left_panel = tk.Frame(body, bg=BG)
+        left_panel.pack(side="left")
+
+        # Camera canvas
         self._canvas = tk.Canvas(
-            body,
+            left_panel,
             width=self.FEED_W, height=self.FEED_H,
             bg=SURFACE, highlightthickness=0,
         )
-        self._canvas.pack(side="left")
+        self._canvas.pack()
 
         # Placeholder text until the first frame arrives
         self._canvas.create_text(
@@ -143,6 +148,15 @@ class AppWindow(tk.Tk):
             fill=MUTED, font=self._font_label,
             tags="placeholder",
         )
+
+        # Volume bar
+        self._volume_canvas = tk.Canvas(
+            left_panel,
+            width=self.FEED_W, height=40,
+            bg=SURFACE, highlightthickness=0,
+        )
+        self._volume_canvas.pack(fill="x")
+        self._volume_canvas.bind("<Configure>", lambda _: self._redraw_volume_bar())
 
         # ── Divider ───────────────────────────
         tk.Frame(body, bg=BORDER, width=1).pack(side="left", fill="y")
