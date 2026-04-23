@@ -7,24 +7,26 @@ from tkinter import font as tkfont
 
 
 # ── Palette ───────────────────────────────────
-BG       = "#0E0E0E"
-SURFACE  = "#1A1A1A"
-SURFACE2 = "#222222"
-BORDER   = "#2A2A2A"
-ACCENT   = "#E8E8E8"
-MUTED    = "#666666"
-ACTIVE   = "#FFFFFF"
-SELECTED = "#2C2C2C"
-SEL_BAR  = "#FFFFFF"
-DRAG_BG  = "#333333"
-VOL_FILL = "#FFFFFF"
-VOL_BG   = "#2A2A2A"
+BG        = "#0E0E0E"
+SURFACE   = "#1A1A1A"
+SURFACE2  = "#222222"
+BORDER    = "#2A2A2A"
+ACCENT    = "#E8E8E8"
+MUTED     = "#666666"
+ACTIVE    = "#FFFFFF"
+SELECTED  = "#2C2C2C"
+SEL_BAR   = "#FFFFFF"
+DRAG_BG   = "#333333"
+VOL_FILL  = "#FFFFFF"
+VOL_BG    = "#2A2A2A"
+PLAYING   = "#1A2E1A"   # dark green tint for the active/playing row
+PLAY_BAR  = "#22C55E"   # green accent bar for the active/playing row
 
 
 class SongRow(tk.Frame):
     """Single numbered track row with drag-to-reorder support."""
 
-    ROW_H = 56
+    ROW_H = 44
 
     def __init__(self, parent, track: dict, index: int,
                  on_select=None, on_drag_start=None,
@@ -78,13 +80,11 @@ class SongRow(tk.Frame):
         )
         self._lbl_title.pack(fill="x", pady=(10, 1))
 
-        artist   = self._track.get("artist",   "—")
-        bpm      = self._track.get("bpm",      "—")
-        duration = self._track.get("duration", "—")
+        artist = self._track.get("artist", "—")
 
         self._lbl_detail = tk.Label(
             inner,
-            text=f"{artist}   ·   {bpm} BPM   ·   {duration}",
+            text=artist,
             bg=bg, fg=MUTED, font=detail_font, anchor="w",
         )
         self._lbl_detail.pack(fill="x")
@@ -126,9 +126,12 @@ class SongRow(tk.Frame):
 
     def set_selected(self, selected: bool):
         self._selected = selected
-        bg = SELECTED if selected else self._bg
-        self._bar.configure(bg=SEL_BAR if selected else bg)
-        self._apply_bg(bg)
+        if selected:
+            self._apply_bg(PLAYING)
+            self._bar.configure(bg=PLAY_BAR)   # set after _apply_bg so it isn't overwritten
+        else:
+            self._apply_bg(self._bg)
+            self._bar.configure(bg=self._bg)
 
     def _apply_bg(self, bg):
         self.configure(bg=bg)
