@@ -23,7 +23,7 @@ class EventBus:
             "pinch":         lambda: dj.crossfade_to(
                                 lib.songs[lib.queued_idx]
                              ) if dj and lib and lib.queued_idx >= 0 else None,
-            "point":         self._skip_to_next,
+            "rock_on":         self._skip_to_next,
         }
 
     # ── Volume helpers (update bar UI after change) ───────
