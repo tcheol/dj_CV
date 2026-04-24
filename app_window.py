@@ -236,6 +236,33 @@ class AppWindow(tk.Tk):
         self._canvas.create_image(0, 0, anchor="nw", image=photo)
         self._canvas._photo = photo
 
+    # ── Gesture helpers ───────────────────────
+
+    def get_pointed_row(self, lm_list: list) -> int:
+        """
+        Map the index-finger tip (landmark 8) y-position from the camera feed
+        onto a song-panel row index.  Returns -1 if no tip found or no rows.
+        """
+        tip = next((lm for lm in lm_list if lm[0] == 8), None)
+        if tip is None:
+            return -1
+
+        n_rows = self._song_panel.track_count
+        if n_rows == 0:
+            return -1
+
+        feed_h = self._canvas.winfo_height() or self.FEED_H
+        panel_header_h = 48
+        row_h = 44
+
+        # Normalise finger y to the panel's list area
+        ratio = tip[2] / feed_h
+        list_h = n_rows * row_h
+        panel_y = ratio * list_h
+
+        row = int(panel_y // row_h)
+        return max(0, min(n_rows - 1, row))
+
     # ── Overlay helpers ───────────────────────
 
     def draw_overlay(self, bgr_frame):

@@ -1,9 +1,10 @@
 # Gesture map
-# 
+#
 #     open_palm     – all 5 fingers up              → Play / Pause
 #     fist          – all fingers down              → Stop
 #     thumb_up      – only thumb up, tip above wrist
 #     thumb_down    – only thumb down, tip below wrist
+#     pinch         – thumb tip close to index tip  → (mapped action)
 #     point         – only index up                 → Select song card
 #     peace         – index + middle up             → Toggle loop
 #     three_fingers – index + middle + ring up      → Next track
@@ -35,6 +36,9 @@ THUMB_UP_RATIO: float = 0.05
 
 # Thumb is considered active only when it is clearly extended away from the palm.
 THUMB_EXTENDED_RATIO: float = 0.08
+
+# Pinch: thumb tip and index tip must be within this fraction of hand scale.
+PINCH_RATIO: float = 0.35
 
 # Internal helpers
 
@@ -76,6 +80,14 @@ def _thumb_extended(hand, scale: float) -> bool:
     vertical = abs(ipy - ty) > (THUMB_UP_RATIO * scale / 2)
     horizontal = abs(tx - cmx) > THUMB_EXTENDED_RATIO * scale
     return vertical or horizontal
+
+
+def _is_pinch(hand, scale: float) -> bool:
+    """True when thumb tip and index tip are close enough to form a pinch."""
+    tx, ty = _lm(hand, THUMB_TIP)
+    ix, iy = _lm(hand, INDEX_TIP)
+    dist = ((tx - ix) ** 2 + (ty - iy) ** 2) ** 0.5
+    return dist < PINCH_RATIO * scale
 
 
 def _thumb_up(hand, scale: float) -> bool:
@@ -124,6 +136,10 @@ def classify(hand) -> Optional[str]:
     # All 5 up → open palm
     if all([thumb, index, middle, ring, pinky]):
         return 'open_palm'
+
+    # Pinch (thumb tip close to index tip) – check before thumb_up
+    if _is_pinch(hand, scale) and not middle and not ring and not pinky:
+        return 'pinch'
 
     # Thumb only
     if thumb and not index and not middle and not ring and not pinky:
@@ -243,7 +259,7 @@ class GestureDebouncer:
 if __name__ == '__main__':
     print('gesture_classifier.py loaded OK')
     print('Gestures recognised:', [
-        'open_palm', 'fist', 'thumb_up', 'thumb_down',
+        'open_palm', 'fist', 'thumb_up', 'thumb_down', 'pinch',
         'point', 'peace', 'three_fingers', 'pinky', 'rock_on',
     ])
     d = GestureDebouncer(confirm_frames=4, cooldown_frames=10)

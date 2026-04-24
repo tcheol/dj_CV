@@ -20,7 +20,7 @@ class EventBus:
             "thumb_up":      self._volume_up,
             "thumb_down":    self._volume_down,
             "peace":         lambda: dj.toggle_loop()       if dj else None,
-            "pinch":         lambda: dj.crossfade_to(
+            "point":         lambda: dj.crossfade_to(
                                 lib.songs[lib.queued_idx]
                              ) if dj and lib and lib.queued_idx >= 0 else None,
             "rock_on":         self._skip_to_next,
