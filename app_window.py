@@ -1,21 +1,15 @@
 # ─────────────────────────────────────────────
 #  app_window.py  –  Main application window
 # ─────────────────────────────────────────────
-#
-#  Hosts the OpenCV camera feed on the left and
-#  the song panel on the right inside a single
-#  clean Tkinter window.
-#
-#  Usage (from main.py):
-#      from app_window import AppWindow
-#      win = AppWindow()
-#      win.mainloop()          # blocking – runs the Tk event loop
-# ─────────────────────────────────────────────
 
 import tkinter as tk
 from tkinter import font as tkfont
 import cv2
-from PIL import Image, ImageTk   # pip install Pillow
+import numpy as np
+import random
+import math
+from PIL import Image, ImageTk, ImageDraw, ImageFont
+import os
 
 from song_panel    import SongPanel
 from import_dialog import ImportDialog
@@ -23,40 +17,46 @@ from config        import WINDOW_NAME, CAMERA_WIDTH, CAMERA_HEIGHT
 
 
 # ── Palette ───────────────────────────────────
-BG       = "#0E0E0E"   # near-black canvas
-SURFACE  = "#1A1A1A"   # card / panel surface
-BORDER   = "#2A2A2A"   # subtle rule
-ACCENT   = "#E8E8E8"   # primary text / highlights
-MUTED    = "#666666"   # secondary text
-ACTIVE   = "#FFFFFF"   # active / selected
+BG      = "#0E0E0E"
+SURFACE = "#1A1A1A"
+BORDER  = "#2A2A2A"
+ACCENT  = "#E8E8E8"
+MUTED   = "#666666"
+ACTIVE  = "#FFFFFF"
+
+# ── Overlay colours (BGR for OpenCV) ──────────
+OVERLAY_BG     = (18,  18,  18)
+OVERLAY_ALPHA  = 0.82
+OVERLAY_BORDER = (42,  42,  42)
+TEXT_PRIMARY   = (232, 232, 232)
+TEXT_MUTED     = (102, 102, 102)
+TEXT_ACTIVE    = (255, 255, 255)
+ACCENT_BAR     = (255, 255, 255)
+SEL_BG         = (44,  44,  44)
+
+# ── Waveform colours ──────────────────────────
+WAVE_IDLE   = (55,  55,  55)
+WAVE_PLAYED = (210, 210, 210)
+WAVE_HEAD   = (255, 255, 255)
 
 
 class AppWindow(tk.Tk):
-    """
-    Top-level Tkinter window for the Gesture DJ Controller.
-
-    Layout
-    ──────
-    ┌──────────────────────────────────┬──────────────┐
-    │  Header bar  (title + shortcuts) │              │
-    ├──────────────────────────────────┤  SongPanel   │
-    │  Camera feed (OpenCV frames)     │              │
-    └──────────────────────────────────┴──────────────┘
-    """
-
-    FEED_W = 854    # displayed camera width  (16:9 at ~67 % of 1280)
-    FEED_H = 480    # displayed camera height
-    PANEL_W = 340   # right-hand song panel width
+    FEED_W  = 854
+    FEED_H  = 480
+    PANEL_W = 340
 
     def __init__(self, camera_manager=None, dj_engine=None, song_library=None):
         super().__init__()
 
-        self._cam     = camera_manager
-        self._dj      = dj_engine
-        self._library = song_library
+        self._cam        = camera_manager
+        self._dj         = dj_engine
+        self._library    = song_library
+        self._after_id   = None
+        self._fullscreen = False
 
-        self._after_id = None   # holds the scheduled frame-update id
-        self._volume   = 50     # volume level (0-100)
+        # Waveform state
+        self._wave_bars  = []
+        self._wave_song  = None
 
         self._configure_window()
         self._load_fonts()
@@ -67,11 +67,12 @@ class AppWindow(tk.Tk):
     def _configure_window(self):
         self.title(WINDOW_NAME)
         self.configure(bg=BG)
-        total_w = self.FEED_W + self.PANEL_W + 3   # 3 px divider
-        total_h = self.FEED_H + 48 + 40             # 48 px header + 40 px volume bar
+        self.resizable(True, True)
+
+        total_w = self.FEED_W + self.PANEL_W + 3
+        total_h = self.FEED_H + 48
         self.geometry(f"{total_w}x{total_h}")
 
-        # Centre on screen
         self.update_idletasks()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
@@ -79,23 +80,19 @@ class AppWindow(tk.Tk):
         y  = (sh - total_h) // 2
         self.geometry(f"{total_w}x{total_h}+{x}+{y}")
 
-        self._fullscreen = False
-        self.resizable(True, True)
-
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.bind("<KeyPress-q>",  lambda _: self._on_close())
-        self.bind("<KeyPress-i>",  lambda _: self._open_import())
-        self.bind("<KeyPress-f>",  lambda _: self._toggle_fullscreen())
-        self.bind("<F11>",         lambda _: self._toggle_fullscreen())
-        self.bind("<Escape>",      lambda _: self._exit_fullscreen())
-        self.bind("<Configure>",   self._on_resize)
+        self.bind("<KeyPress-q>", lambda _: self._on_close())
+        self.bind("<KeyPress-i>", lambda _: self._open_import())
+        self.bind("<KeyPress-f>", lambda _: self._toggle_fullscreen())
+        self.bind("<F11>",        lambda _: self._toggle_fullscreen())
+        self.bind("<Escape>",     lambda _: self._exit_fullscreen())
 
     def _load_fonts(self):
-        self._font_title  = tkfont.Font(family="Helvetica Neue", size=13, weight="bold")
-        self._font_label  = tkfont.Font(family="Helvetica Neue", size=11)
-        self._font_hint   = tkfont.Font(family="Helvetica Neue", size=10)
+        self._font_title = tkfont.Font(family="TkDefaultFont", size=13, weight="bold")
+        self._font_label = tkfont.Font(family="TkDefaultFont", size=11)
+        self._font_hint  = tkfont.Font(family="TkDefaultFont", size=10)
 
-    # ── UI construction ───────────────────────
+    # ── UI ────────────────────────────────────
 
     def _build_ui(self):
         self._build_header()
@@ -106,42 +103,35 @@ class AppWindow(tk.Tk):
         hdr.pack(fill="x", side="top")
         hdr.pack_propagate(False)
 
-        # Title
         tk.Label(
             hdr, text=WINDOW_NAME.upper(),
             bg=SURFACE, fg=ACTIVE,
-            font=self._font_title,
-            padx=20,
+            font=self._font_title, padx=20,
         ).pack(side="left", fill="y")
 
-        # Keyboard hint pills  (Q = quit  |  I = import)
-        hints = [("Q", "quit"), ("I", "import"), ("F", "fullscreen")]
-        for key, label in hints:
-            pill = tk.Frame(hdr, bg=BORDER, padx=8, pady=0)
+        # Q and F shortcut pills
+        for key, label in [("F", "fullscreen"), ("Q", "quit")]:
+            pill = tk.Frame(hdr, bg=BORDER, padx=8)
             pill.pack(side="right", padx=(0, 8), fill="y", pady=12)
-            tk.Label(pill, text=key,   bg=BORDER, fg=ACTIVE, font=self._font_hint).pack(side="left")
-            tk.Label(pill, text=f" {label}", bg=BORDER, fg=MUTED,  font=self._font_hint).pack(side="left")
+            tk.Label(pill, text=key,         bg=BORDER, fg=ACTIVE,
+                     font=self._font_hint).pack(side="left")
+            tk.Label(pill, text=f" {label}", bg=BORDER, fg=MUTED,
+                     font=self._font_hint).pack(side="left")
 
-        # Thin bottom rule
-        tk.Frame(hdr, bg=BORDER, height=1).place(relx=0, rely=1.0, relwidth=1, anchor="sw")
+        tk.Frame(hdr, bg=BORDER, height=1).place(
+            relx=0, rely=1.0, relwidth=1, anchor="sw")
 
     def _build_body(self):
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True)
 
-        # ── Left: camera + volume bar ─────────
-        left_panel = tk.Frame(body, bg=BG)
-        left_panel.pack(side="left")
-
         # Camera canvas
         self._canvas = tk.Canvas(
-            left_panel,
-            width=self.FEED_W, height=self.FEED_H,
+            body, width=self.FEED_W, height=self.FEED_H,
             bg=SURFACE, highlightthickness=0,
         )
-        self._canvas.pack()
+        self._canvas.pack(side="left", fill="both", expand=True)
 
-        # Placeholder text until the first frame arrives
         self._canvas.create_text(
             self.FEED_W // 2, self.FEED_H // 2,
             text="Waiting for camera…",
@@ -149,19 +139,15 @@ class AppWindow(tk.Tk):
             tags="placeholder",
         )
 
-        # Volume bar
-        self._volume_canvas = tk.Canvas(
-            left_panel,
-            width=self.FEED_W, height=40,
-            bg=SURFACE, highlightthickness=0,
-        )
-        self._volume_canvas.pack(fill="x")
-        self._volume_canvas.bind("<Configure>", lambda _: self._redraw_volume_bar())
+        # Click/drag waveform to seek
+        self._canvas.bind("<ButtonPress-1>", self._on_canvas_click)
+        self._canvas.bind("<B1-Motion>",     self._on_canvas_click)
 
-        # ── Divider ───────────────────────────
-        tk.Frame(body, bg=BORDER, width=1).pack(side="left", fill="y")
+        # Divider
+        self._divider = tk.Frame(body, bg=BORDER, width=1)
+        self._divider.pack(side="left", fill="y")
 
-        # ── Right: song panel ─────────────────
+        # Song panel
         self._song_panel = SongPanel(
             body,
             width=self.PANEL_W,
@@ -169,108 +155,273 @@ class AppWindow(tk.Tk):
             dj_engine=self._dj,
             song_library=self._library,
         )
-        self._song_panel.pack(side="left", fill="both", expand=True)
+        self._song_panel.pack(side="left", fill="both")
 
-    # ── Fullscreen ───────────────────────────
+    # ── Fullscreen ────────────────────────────
 
     def _toggle_fullscreen(self):
         self._fullscreen = not self._fullscreen
         self.attributes("-fullscreen", self._fullscreen)
+        if self._fullscreen:
+            self._divider.pack_forget()
+            self._song_panel.pack_forget()
+        else:
+            self._divider.pack(side="left", fill="y")
+            self._song_panel.pack(side="left", fill="both")
 
     def _exit_fullscreen(self):
         if self._fullscreen:
             self._fullscreen = False
             self.attributes("-fullscreen", False)
+            self._divider.pack(side="left", fill="y")
+            self._song_panel.pack(side="left", fill="both")
 
-    def _on_resize(self, event=None):
-        """Resize the camera canvas whenever the window size changes."""
-        if event and event.widget is not self:
-            return
-        win_w = self.winfo_width()
-        win_h = self.winfo_height()
-        hdr_h = 48
-
-        if self._fullscreen:
-            # Camera fills the whole screen, panel slides off
-            feed_w = win_w
-            feed_h = win_h
-        else:
-            # Normal layout: camera takes window minus panel
-            feed_w = max(100, win_w - self.PANEL_W - 3)
-            feed_h = max(100, win_h - hdr_h)
-
-        self._canvas.config(width=feed_w, height=feed_h)
-
-    # ── Camera feed loop ──────────────────────
+    # ── Camera feed ───────────────────────────
 
     def start_feed(self):
-        """
-        Begin polling the camera and drawing frames onto the canvas.
-        Call this after mainloop() would block — typically run in a thread
-        or call before mainloop() and let Tkinter's after() drive it.
-        """
         self._update_frame()
 
     def _update_frame(self):
-        """Scheduled every ~33 ms to pull a frame and refresh the canvas."""
         if self._cam is not None:
             frame = self._cam.read()
             if frame is not None:
                 self._draw_frame(frame)
-
-        # Reschedule
         self._after_id = self.after(33, self._update_frame)
 
+    def draw_overlay(self, bgr_frame):
+        self._draw_frame(bgr_frame)
+
     def _draw_frame(self, bgr_frame):
-        """Convert a BGR OpenCV frame to a Tk PhotoImage and blit it."""
         self._canvas.delete("placeholder")
 
-        # Use actual canvas size so it fills correctly in fullscreen
         cw = self._canvas.winfo_width()  or self.FEED_W
         ch = self._canvas.winfo_height() or self.FEED_H
 
-        rgb   = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        img   = Image.fromarray(rgb).resize((cw, ch), Image.BILINEAR)
-        photo = ImageTk.PhotoImage(img)
+        frame = cv2.resize(bgr_frame, (cw, ch), interpolation=cv2.INTER_LINEAR)
 
+        # Always draw waveform bar at bottom
+        frame = self._draw_waveform(frame, cw, ch)
+
+        # In fullscreen draw the panel overlay
+        if self._fullscreen and self._library is not None:
+            frame = self._draw_panel_overlay(frame, cw, ch)
+
+        rgb   = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        photo = ImageTk.PhotoImage(Image.fromarray(rgb))
         self._canvas.create_image(0, 0, anchor="nw", image=photo)
         self._canvas._photo = photo
 
-    # ── Gesture helpers ───────────────────────
+    # ── Waveform ──────────────────────────────
+
+    def _get_wave_bars(self, song_key: str, n: int) -> list:
+        if self._wave_song != song_key or len(self._wave_bars) != n:
+            random.seed(hash(song_key) & 0xFFFFFF)
+            raw   = []
+            phase = 0.0
+            for _ in range(n):
+                phase += random.uniform(0.05, 0.25)
+                h = math.sin(phase) * 0.4 + 0.5 + random.uniform(-0.15, 0.15)
+                raw.append(max(0.05, min(1.0, h)))
+            self._wave_bars = raw
+            self._wave_song = song_key
+            random.seed()
+        return self._wave_bars
+
+    def _draw_waveform(self, frame, fw, fh):
+        WAVE_H    = 60
+        BAR_MAX_H = 38
+        BAR_W     = 3
+        BAR_GAP   = 2
+        py        = fh - WAVE_H
+
+        # Background
+        ov = frame.copy()
+        cv2.rectangle(ov, (0, py), (fw, fh), (10, 10, 10), -1)
+        frame = cv2.addWeighted(ov, 0.78, frame, 0.22, 0)
+        cv2.line(frame, (0, py), (fw, py), OVERLAY_BORDER, 1)
+
+        # Progress
+        progress = 0.0
+        song_key = "none"
+
+        if self._dj and hasattr(self._dj, 'current_song') and self._dj.current_song:
+            s = self._dj.current_song
+            song_key = s.path if hasattr(s, 'path') else s.get('path', 'none')
+            try:
+                progress = self._dj.get_progress()
+            except Exception:
+                pass
+
+        n_bars = max(10, fw // (BAR_W + BAR_GAP))
+        bars   = self._get_wave_bars(song_key, n_bars)
+        head_i = int(progress * (n_bars - 1))
+        cx     = (fw - n_bars * (BAR_W + BAR_GAP)) // 2
+
+        for i, norm_h in enumerate(bars):
+            bh  = max(2, int(norm_h * BAR_MAX_H))
+            bx  = cx + i * (BAR_W + BAR_GAP)
+            by  = py + (WAVE_H - bh) // 2
+            col = WAVE_PLAYED if i < head_i else (WAVE_HEAD if i == head_i else WAVE_IDLE)
+            cv2.rectangle(frame, (bx, by), (bx + BAR_W, by + bh), col, -1)
+
+        # Now playing label
+        if self._dj and hasattr(self._dj, 'current_song') and self._dj.current_song:
+            s     = self._dj.current_song
+            title = s.title if hasattr(s, 'title') else s.get('title', '')
+            pil   = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            self._put_text(pil, "NOW PLAYING", (14, py + 6),  TEXT_MUTED,  self._load_font(10))
+            self._put_text(pil, title[:45],    (14, py + 20), TEXT_ACTIVE, self._load_font(12))
+            frame = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+        return frame
+
+    # ── Fullscreen panel overlay ──────────────
+
+    def _draw_panel_overlay(self, frame, fw, fh):
+        pw     = self.PANEL_W + 40
+        px     = fw - pw
+        WAVE_H = 60
+        panel_h = fh - WAVE_H
+
+        # Background
+        ov = frame.copy()
+        cv2.rectangle(ov, (px, 0), (fw, panel_h), OVERLAY_BG, -1)
+        cv2.line(ov, (px, 0), (px, panel_h), OVERLAY_BORDER, 1)
+        frame = cv2.addWeighted(ov, OVERLAY_ALPHA, frame, 1 - OVERLAY_ALPHA, 0)
+
+        # Header
+        hdr_h = 48
+        cv2.rectangle(frame, (px, 0), (fw, hdr_h), (26, 26, 26), -1)
+        cv2.line(frame, (px, hdr_h), (fw, hdr_h), OVERLAY_BORDER, 1)
+
+        pil        = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        font_lg    = self._load_font(13)
+        font_md    = self._load_font(11)
+        font_sm    = self._load_font(10)
+
+        self._put_text(pil, "TRACKS", (px + 16, 14), TEXT_MUTED, font_sm)
+        frame = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+        # Vertical volume bar (right edge)
+        vbw   = 18
+        vbh   = panel_h - hdr_h - 16
+        vbx   = fw - vbw - 6
+        vby   = hdr_h + 8
+        vol   = self._dj.volume if (self._dj and hasattr(self._dj, 'volume')) else 0.8
+        fh_v  = int(vol * vbh)
+        cv2.rectangle(frame, (vbx, vby), (vbx + vbw, vby + vbh), (40, 40, 40), -1)
+        cv2.rectangle(frame, (vbx, vby + vbh - fh_v), (vbx + vbw, vby + vbh), (210, 210, 210), -1)
+
+        pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        self._put_text(pil, "VOL",          (vbx - 1, vby - 14),          TEXT_MUTED, font_sm)
+        self._put_text(pil, f"{int(vol*100)}%", (vbx - 1, vby + vbh + 4), TEXT_MUTED, font_sm)
+        frame = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+        # Track rows
+        tracks   = self._library.all_tracks()
+        row_h    = 56
+        track_pw = pw - vbw - 14
+
+        for i, track in enumerate(tracks[:8]):
+            ry = hdr_h + i * row_h
+            if ry + row_h > panel_h:
+                break
+
+            is_sel = (hasattr(self._song_panel, '_selected_idx') and
+                      self._song_panel._selected_idx == i)
+
+            row_bg = SEL_BG if is_sel else ((28, 28, 28) if i % 2 == 0 else (22, 22, 22))
+            cv2.rectangle(frame, (px, ry), (px + track_pw, ry + row_h), row_bg, -1)
+            cv2.rectangle(frame, (px, ry), (px + 3, ry + row_h),
+                          ACCENT_BAR if is_sel else row_bg, -1)
+            cv2.line(frame, (px, ry + row_h), (px + track_pw, ry + row_h), OVERLAY_BORDER, 1)
+
+            pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            self._put_text(pil, str(i + 1),
+                           (px + 8, ry + 10), TEXT_MUTED, font_sm)
+            self._put_text(pil, track.get("title", "Unknown"),
+                           (px + 28, ry + 8),
+                           TEXT_ACTIVE if is_sel else TEXT_PRIMARY, font_lg)
+            self._put_text(pil,
+                           f"{track.get('artist','—')}  ·  {track.get('bpm','—')} BPM  ·  {track.get('duration','—')}",
+                           (px + 28, ry + 28), TEXT_MUTED, font_md)
+            frame = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+        return frame
+
+    # ── Seek on waveform click ─────────────────
+
+    def _on_canvas_click(self, event):
+        ch = self._canvas.winfo_height() or self.FEED_H
+        cw = self._canvas.winfo_width()  or self.FEED_W
+        if event.y >= ch - 60 and cw > 0:
+            ratio = max(0.0, min(1.0, event.x / cw))
+            if self._dj and hasattr(self._dj, 'seek'):
+                self._dj.seek(ratio)
+
+    # ── Point gesture: fingertip → song row ───
 
     def get_pointed_row(self, lm_list: list) -> int:
-        """
-        Map the index-finger tip (landmark 8) y-position from the camera feed
-        onto a song-panel row index.  Returns -1 if no tip found or no rows.
-        """
+        if not lm_list:
+            return -1
         tip = next((lm for lm in lm_list if lm[0] == 8), None)
         if tip is None:
             return -1
+        _, cx, cy = tip
 
-        n_rows = self._song_panel.track_count
-        if n_rows == 0:
+        hdr_h = 48
+        row_h = 56   # must match SongRow.ROW_H in song_panel.py
+
+        if self._fullscreen:
+            cw = self._canvas.winfo_width() or self.FEED_W
+            pw = self.PANEL_W + 40
+            if cx < cw - pw:
+                return -1
+        else:
+            try:
+                canvas_off = self._canvas.winfo_rootx() - self.winfo_rootx()
+            except Exception:
+                canvas_off = 0
+            win_x = cx + canvas_off
+            if win_x < self.winfo_width() - self.PANEL_W:
+                return -1
+
+        row_y = cy - hdr_h
+        if row_y < 0:
             return -1
+        idx = int(row_y // row_h)
+        if self._song_panel and 0 <= idx < self._song_panel.track_count:
+            return idx
+        return -1
 
-        feed_h = self._canvas.winfo_height() or self.FEED_H
-        panel_header_h = 48
-        row_h = 44
+    # ── Unicode font loader ───────────────────
 
-        # Normalise finger y to the panel's list area
-        ratio = tip[2] / feed_h
-        list_h = n_rows * row_h
-        panel_y = ratio * list_h
+    @staticmethod
+    def _load_font(size: int) -> ImageFont.FreeTypeFont:
+        candidates = [
+            "C:/Windows/Fonts/arialuni.ttf",
+            "C:/Windows/Fonts/Arial.ttf",
+            "C:/Windows/Fonts/msgothic.ttc",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/Library/Fonts/Arial Unicode.ttf",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Black.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    continue
+        return ImageFont.load_default()
 
-        row = int(panel_y // row_h)
-        return max(0, min(n_rows - 1, row))
-
-    # ── Overlay helpers ───────────────────────
-
-    def draw_overlay(self, bgr_frame):
-        """
-        External hook — call this from your main gesture loop to push a
-        pre-annotated frame (with landmark overlays) into the canvas.
-        """
-        self._draw_frame(bgr_frame)
+    def _put_text(self, img_pil, text, xy, color, font):
+        draw = ImageDraw.Draw(img_pil)
+        draw.text(xy, text, font=font, fill=(color[2], color[1], color[0]))
 
     # ── Import dialog ─────────────────────────
 
@@ -282,89 +433,18 @@ class AppWindow(tk.Tk):
             added = self._library.add_files(paths)
             if added:
                 self._song_panel.refresh()
-                # Auto-play the first newly imported song via DJ engine
                 first_song = self._library.songs[-added]
                 if self._dj is not None:
                     self._dj.load_and_play(first_song)
                     print(f'[INFO] Now playing: {first_song.title}')
                 else:
-                    print('[WARN] No DJ engine attached — cannot play audio.')
+                    print('[WARN] No DJ engine attached.')
         elif paths and self._library is None:
-            print('[WARN] No song library attached — songs not saved.')
+            print('[WARN] No song library attached.')
 
     def stop(self):
-        """Stop playback."""
         if self._dj is not None:
             self._dj.stop()
-
-    # ── Volume control ────────────────────────
-
-    def _redraw_volume_bar(self):
-        """Redraw the volume bar based on current volume level."""
-        self._volume_canvas.delete("all")
-        
-        canvas_width = self._volume_canvas.winfo_width()
-        canvas_height = self._volume_canvas.winfo_height()
-        
-        # Handle case where canvas hasn't been rendered yet
-        if canvas_width <= 1:
-            canvas_width = self.FEED_W
-        if canvas_height <= 1:
-            canvas_height = 40
-
-        # Padding and dimensions
-        padding = 12
-        bar_height = 8
-        bar_y = (canvas_height - bar_height) // 2
-
-        # Background bar (unfilled)
-        bar_width = canvas_width - 2 * padding
-        self._volume_canvas.create_rectangle(
-            padding, bar_y,
-            padding + bar_width, bar_y + bar_height,
-            fill=BORDER, outline=MUTED, width=1,
-            tags="bg_bar"
-        )
-
-        # Filled bar (shows current volume)
-        fill_width = (self._volume * bar_width) // 100
-        if fill_width > 0:
-            self._volume_canvas.create_rectangle(
-                padding, bar_y,
-                padding + fill_width, bar_y + bar_height,
-                fill=ACCENT, outline=ACCENT, width=0,
-                tags="fill_bar"
-            )
-
-        # Volume text label
-        volume_text = f"Volume: {self._volume}%"
-        self._volume_canvas.create_text(
-            canvas_width // 2, canvas_height // 2,
-            text=volume_text,
-            fill=ACTIVE, font=self._font_label,
-            tags="volume_text"
-        )
-
-    def handle_volume_up(self):
-        """Increase volume by 5%."""
-        self._volume = min(100, self._volume + 5)
-        self._redraw_volume_bar()
-        print(f'[INFO] Volume: {self._volume}%')
-
-    def handle_volume_down(self):
-        """Decrease volume by 5%."""
-        self._volume = max(0, self._volume - 5)
-        self._redraw_volume_bar()
-        print(f'[INFO] Volume: {self._volume}%')
-
-    def get_volume(self):
-        """Get current volume level (0-100)."""
-        return self._volume
-
-    def set_volume(self, level):
-        """Set volume level (0-100)."""
-        self._volume = max(0, min(100, level))
-        self._redraw_volume_bar()
 
     # ── Lifecycle ─────────────────────────────
 
