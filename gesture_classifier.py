@@ -26,19 +26,19 @@ RING_MCP,   RING_PIP,   RING_DIP,   RING_TIP   = 13, 14, 15, 16
 PINKY_MCP,  PINKY_PIP,  PINKY_DIP,  PINKY_TIP  = 17, 18, 19, 20
 
 
-# A finger is "extended" when its tip is this much *above* (lower y) its PIP.
-# Expressed as a fraction of the wrist-to-middle-MCP distance so it scales
-# with hand size / camera distance.
+# A finger is "extended" when its tip is this much *further from the wrist*
+# than its PIP joint.  Distance-based so it works at any hand orientation.
 EXTENSION_RATIO: float = 0.10
 
 # Thumb: tip must be this much *above* wrist.y (normalised) to count as up.
 THUMB_UP_RATIO: float = 0.05
 
-# Thumb is considered active only when it is clearly extended away from the palm.
-THUMB_EXTENDED_RATIO: float = 0.08
+# Thumb is considered active only when its tip is clearly further from the
+# wrist than the IP joint.  Raised to avoid false-positives during point/peace.
+THUMB_EXTENDED_RATIO: float = 0.18
 
 # Pinch: thumb tip and index tip must be within this fraction of hand scale.
-PINCH_RATIO: float = 0.35
+PINCH_RATIO: float = 0.40
 
 # Internal helpers
 
@@ -62,24 +62,25 @@ def _hand_scale(hand) -> float:
 
 def _finger_extended(hand, tip_idx: int, pip_idx: int, scale: float) -> bool:
     """
-    True when the finger tip is sufficiently *above* (smaller y) its PIP joint.
-    MediaPipe y increases downward, so tip.y < pip.y means the finger is up.
+    True when the finger tip is further from the wrist than its PIP joint.
+    Distance-based so it works regardless of hand orientation / tilt.
     """
-    _, tip_y = _lm(hand, tip_idx)
-    _, pip_y = _lm(hand, pip_idx)
-    return (pip_y - tip_y) > EXTENSION_RATIO * scale
+    wx, wy = _lm(hand, WRIST)
+    tx, ty = _lm(hand, tip_idx)
+    px, py = _lm(hand, pip_idx)
+    tip_dist = ((tx - wx) ** 2 + (ty - wy) ** 2) ** 0.5
+    pip_dist = ((px - wx) ** 2 + (py - wy) ** 2) ** 0.5
+    return (tip_dist - pip_dist) > EXTENSION_RATIO * scale
 
 
 def _thumb_extended(hand, scale: float) -> bool:
-    """True when the thumb is clearly extended away from the palm (up OR down)."""
-    tx, ty = _lm(hand, THUMB_TIP)
+    """True when the thumb tip is clearly further from the wrist than the IP joint."""
+    wx, wy   = _lm(hand, WRIST)
+    tx, ty   = _lm(hand, THUMB_TIP)
     ipx, ipy = _lm(hand, THUMB_IP)
-    cmx, cmy = _lm(hand, THUMB_CMC)
-
-    # Vertical extension: tip above IP (up) OR tip below IP (down)
-    vertical = abs(ipy - ty) > (THUMB_UP_RATIO * scale / 2)
-    horizontal = abs(tx - cmx) > THUMB_EXTENDED_RATIO * scale
-    return vertical or horizontal
+    tip_dist = ((tx - wx) ** 2 + (ty - wy) ** 2) ** 0.5
+    ip_dist  = ((ipx - wx) ** 2 + (ipy - wy) ** 2) ** 0.5
+    return (tip_dist - ip_dist) > THUMB_EXTENDED_RATIO * scale
 
 
 def _is_pinch(hand, scale: float) -> bool:
@@ -89,14 +90,6 @@ def _is_pinch(hand, scale: float) -> bool:
     dist = ((tx - ix) ** 2 + (ty - iy) ** 2) ** 0.5
     return dist < PINCH_RATIO * scale
 
-
-def _thumb_up(hand, scale: float) -> bool:
-    """
-    Thumb is pointing upward when its tip is above the wrist.
-    """
-    _, tip_y  = _lm(hand, THUMB_TIP)
-    _, wrist_y = _lm(hand, WRIST)
-    return tip_y < wrist_y
 
 
 # Public classifier
@@ -119,7 +112,6 @@ def classify(hand) -> Optional[str]:
 
     # Finger states
     thumb  = _thumb_extended(hand, scale)
-    thumb_up = _thumb_up(hand, scale)
     index  = _finger_extended(hand, INDEX_TIP,  INDEX_PIP,  scale)
     middle = _finger_extended(hand, MIDDLE_TIP, MIDDLE_PIP, scale)
     ring   = _finger_extended(hand, RING_TIP,   RING_PIP,   scale)
@@ -147,20 +139,20 @@ def classify(hand) -> Optional[str]:
         _, wrist_y = _lm(hand, WRIST)
         return 'thumb_up' if tip_y < wrist_y else 'thumb_down'
 
-    # Index only → point
-    if index and not thumb and not middle and not ring and not pinky:
+    # Index only → point  (thumb allowed — it naturally sticks out)
+    if index and not middle and not ring and not pinky:
         return 'point'
 
-    # Index + middle → peace
-    if index and middle and not thumb and not ring and not pinky:
+    # Index + middle → peace  (thumb allowed)
+    if index and middle and not ring and not pinky:
         return 'peace'
 
-    # Index + middle + ring → three_fingers
-    if index and middle and ring and not thumb and not pinky:
+    # Index + middle + ring → three_fingers  (thumb allowed)
+    if index and middle and ring and not pinky:
         return 'three_fingers'
 
-    # Pinky only → previous track
-    if pinky and not thumb and not index and not middle and not ring:
+    # Pinky only → previous track  (thumb allowed)
+    if pinky and not index and not middle and not ring:
         return 'pinky'
 
     return None
