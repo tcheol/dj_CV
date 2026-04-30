@@ -82,6 +82,19 @@ Gesture recognition uses **debouncing** — hold a gesture for ~8 consistent fra
 
 ---
 
+## Manual Controls (Mouse)
+
+If hand gesture recognition isn't working, you can control everything manually with your mouse:
+
+**Reordering songs:**
+- Click and drag the handle on the left side of any track row to move it up or down in the list
+
+**Volume:**
+- The volume bar is pinned at the bottom of the song panel on the right
+- Click or drag along the bar to set the volume manually
+
+---
+
 ## Keyboard Shortcuts
 
 | Key | Action |
