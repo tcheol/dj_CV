@@ -109,6 +109,22 @@ class AppWindow(tk.Tk):
             font=self._font_title, padx=20,
         ).pack(side="left", fill="y")
 
+        # Play/Pause and Stop buttons
+        self._play_btn = tk.Button(
+            hdr, text="▶  Play",
+            bg="#2A2A2A", fg=ACTIVE, activebackground="#3A3A3A", activeforeground=ACTIVE,
+            font=self._font_hint, relief="flat", padx=12, cursor="hand2",
+            command=self._on_play_pause,
+        )
+        self._play_btn.pack(side="left", padx=(0, 6), pady=10)
+
+        tk.Button(
+            hdr, text="■  Stop",
+            bg="#2A2A2A", fg=MUTED, activebackground="#3A3A3A", activeforeground=ACTIVE,
+            font=self._font_hint, relief="flat", padx=12, cursor="hand2",
+            command=self._on_stop,
+        ).pack(side="left", pady=10)
+
         # Q and F shortcut pills
         for key, label in [("F", "fullscreen"), ("Q", "quit")]:
             pill = tk.Frame(hdr, bg=BORDER, padx=8)
@@ -120,6 +136,19 @@ class AppWindow(tk.Tk):
 
         tk.Frame(hdr, bg=BORDER, height=1).place(
             relx=0, rely=1.0, relwidth=1, anchor="sw")
+
+    def _on_play_pause(self):
+        if self._dj is None:
+            return
+        self._dj.toggle_play_pause()
+        playing = getattr(self._dj, "is_playing", False)
+        self._play_btn.config(text="⏸  Pause" if playing else "▶  Play")
+
+    def _on_stop(self):
+        if self._dj is None:
+            return
+        self._dj.stop()
+        self._play_btn.config(text="▶  Play")
 
     def _build_body(self):
         body = tk.Frame(self, bg=BG)

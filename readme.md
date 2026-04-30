@@ -84,7 +84,14 @@ Gesture recognition uses **debouncing** — hold a gesture for ~8 consistent fra
 
 ## Manual Controls (Mouse)
 
-If hand gesture recognition isn't working, you can control everything manually with your mouse:
+If hand gesture recognition isn't working, you can control everything manually with your mouse. You do not need to restart the application.
+
+**Play / Pause:**
+- Click the **▶ Play** button in the top header bar to start playing
+- Click it again (it becomes **⏸ Pause**) to pause the song — the song stays at the same position so you can resume any time
+
+**Stop:**
+- Click the **■ Stop** button in the top header bar to stop playback completely
 
 **Reordering songs:**
 - Click and drag the handle on the left side of any track row to move it up or down in the list
