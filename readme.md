@@ -93,12 +93,32 @@ Gesture recognition uses **debouncing** — hold a gesture for ~8 consistent fra
 
 ---
 
+## Adding Songs
+
+**Songs must be in WAV or OGG format.** MP3 support via pydub is currently unreliable, so convert your files to WAV before importing.
+
+### How to convert MP3 to WAV (free, no software needed)
+
+Use an online converter such as [https://cloudconvert.com/mp3-to-wav](https://cloudconvert.com/mp3-to-wav) or any other audio converter you prefer. Download the `.wav` file when done.
+
+### How to import songs into the app
+
+1. Run the program (`python main.py`)
+2. Press `I` on your keyboard, or click the **Browse & Import** button in the song panel on the right
+3. In the file picker that opens, select your `.wav` or `.ogg` files
+4. Click confirm — the songs will appear in the track list and be saved for next time
+
+The library is stored in `songs.json` in the project folder, so your songs persist between sessions.
+
+---
+
 ## Audio Support
 
-| Format | Requires |
+| Format | Status |
 |---|---|
-| WAV, OGG | Nothing extra |
-| MP3, FLAC, AAC, M4A | pydub + ffmpeg |
+| WAV | Fully supported — recommended |
+| OGG | Fully supported |
+| MP3, FLAC, AAC, M4A | Currently unreliable — convert to WAV first |
 
 ---
 
