@@ -23,7 +23,7 @@ Control music playback with your hands. DJ_CV uses your webcam and computer visi
 ### Install dependencies
 
 ```bash
-pip install opencv-python mediapipe pygame pillow mutagen
+pip install opencv-python mediapipe pygame pillow mutagen numpy
 pip install pydub  # optional — enables MP3, FLAC, AAC support (requires ffmpeg on PATH)
 ```
 
